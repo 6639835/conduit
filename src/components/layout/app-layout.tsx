@@ -21,7 +21,7 @@ export const AppLayout = ({ children, showSidebar = true }: AppLayoutProps) => {
     <div className="min-h-screen flex flex-col">
       <Header onMenuToggle={toggleSidebar} isMenuOpen={isSidebarOpen} />
 
-      <div className="flex flex-1">
+      <div className="flex flex-1 pt-16">
         {showSidebar && (
           <Sidebar isOpen={isSidebarOpen} onClose={closeSidebar} />
         )}

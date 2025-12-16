@@ -47,6 +47,16 @@ interface Provider {
   };
 }
 
+/**
+ * NOTE: This page is a placeholder for future provider management functionality.
+ * Currently, providers are configured per API key (see apiKeys table in schema).
+ * There is no separate providers table or API endpoints.
+ *
+ * To implement this feature:
+ * 1. Create a providers table in the database schema
+ * 2. Create API endpoints at /api/admin/providers
+ * 3. Update this page to use those endpoints
+ */
 export default function ProviderSettingsPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,59 +81,8 @@ export default function ProviderSettingsPage() {
 
   const fetchProviders = async () => {
     try {
-      // Simulated data - replace with actual API call
-      const mockProviders: Provider[] = [
-        {
-          id: '1',
-          name: 'Claude Official API',
-          type: 'official',
-          endpoint: 'https://api.anthropic.com',
-          isActive: true,
-          isDefault: true,
-          createdAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
-          lastTestedAt: new Date().toISOString(),
-          status: 'healthy',
-          defaultRateLimits: {
-            requestsPerMinute: 60,
-            requestsPerDay: 1000,
-            tokensPerDay: 1000000,
-          },
-        },
-        {
-          id: '2',
-          name: 'AWS Bedrock - US East',
-          type: 'bedrock',
-          endpoint: 'https://bedrock.us-east-1.amazonaws.com',
-          isActive: true,
-          isDefault: false,
-          createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-          lastTestedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-          status: 'healthy',
-          defaultRateLimits: {
-            requestsPerMinute: 100,
-            requestsPerDay: 5000,
-            tokensPerDay: 5000000,
-          },
-        },
-        {
-          id: '3',
-          name: 'Custom Endpoint - Dev',
-          type: 'custom',
-          endpoint: 'https://dev.custom-claude.example.com',
-          isActive: false,
-          isDefault: false,
-          createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-          lastTestedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-          status: 'unhealthy',
-          defaultRateLimits: {
-            requestsPerMinute: 30,
-            requestsPerDay: 500,
-            tokensPerDay: 500000,
-          },
-        },
-      ];
-
-      setProviders(mockProviders);
+      // TODO: Replace with actual API call to fetch providers
+      setProviders([]);
     } catch {
       toast.error('Failed to fetch providers', {
         description: 'An unexpected error occurred',
@@ -149,7 +108,7 @@ export default function ProviderSettingsPage() {
     setSubmitting(true);
 
     try {
-      // Simulated API call - replace with actual implementation
+      // TODO: Replace with actual API call
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       const newProvider: Provider = {
@@ -199,7 +158,7 @@ export default function ProviderSettingsPage() {
     setSubmitting(true);
 
     try {
-      // Simulated API call - replace with actual implementation
+      // TODO: Replace with actual API call
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       setProviders(
@@ -244,7 +203,7 @@ export default function ProviderSettingsPage() {
 
   const handleToggleProviderStatus = async (provider: Provider) => {
     try {
-      // Simulated API call - replace with actual implementation
+      // TODO: Replace with actual API call
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       setProviders(
@@ -268,7 +227,7 @@ export default function ProviderSettingsPage() {
 
   const handleSetDefault = async (provider: Provider) => {
     try {
-      // Simulated API call - replace with actual implementation
+      // TODO: Replace with actual API call
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       setProviders(
@@ -292,10 +251,10 @@ export default function ProviderSettingsPage() {
     setTesting(provider.id);
 
     try {
-      // Simulated API call - replace with actual implementation
+      // TODO: Replace with actual API call
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      const isHealthy = Math.random() > 0.3; // 70% success rate for demo
+      const isHealthy = Math.random() > 0.3;
 
       setProviders(
         providers.map((p) =>
@@ -343,7 +302,7 @@ export default function ProviderSettingsPage() {
       return;
 
     try {
-      // Simulated API call - replace with actual implementation
+      // TODO: Replace with actual API call
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       setProviders(providers.filter((p) => p.id !== provider.id));
@@ -553,6 +512,20 @@ export default function ProviderSettingsPage() {
   return (
     <AppLayout>
       <div className="max-w-7xl mx-auto space-y-8">
+        {/* Feature Not Implemented Notice */}
+        <AlertCard variant="warning">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 mt-0.5" />
+            <div>
+              <h3 className="font-semibold mb-1">Feature Not Yet Implemented</h3>
+              <p className="text-sm">
+                Provider management is currently a placeholder. Providers are configured per API key
+                in the API Keys section. There are no backend endpoints or database tables for this feature yet.
+              </p>
+            </div>
+          </div>
+        </AlertCard>
+
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
@@ -567,12 +540,6 @@ export default function ProviderSettingsPage() {
           </Button>
         </div>
 
-        {/* Notice */}
-        <AlertCard
-          title="Note"
-          description="This is a demo implementation with mock data. In production, securely store provider credentials and implement proper endpoint validation."
-          variant="info"
-        />
 
         {/* Create/Edit Form */}
         {showCreateForm && (

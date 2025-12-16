@@ -73,91 +73,12 @@ export default function AdminDashboard() {
 
     const fetchActivities = async () => {
       try {
-        // Simulated data - replace with actual API call
-        const mockActivities: ActivityItem[] = [
-          {
-            id: '1',
-            type: 'api_request',
-            description: 'API request to Claude Sonnet',
-            timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-            metadata: {
-              keyPrefix: 'sk_live_abc123',
-              model: 'claude-3-sonnet',
-              status: 'success',
-            },
-          },
-          {
-            id: '2',
-            type: 'key_created',
-            description: 'New API key created',
-            timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-            metadata: {
-              keyPrefix: 'sk_live_xyz789',
-            },
-          },
-          {
-            id: '3',
-            type: 'api_request',
-            description: 'API request to Claude Opus',
-            timestamp: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-            metadata: {
-              keyPrefix: 'sk_live_def456',
-              model: 'claude-3-opus',
-              status: 'success',
-            },
-          },
-          {
-            id: '4',
-            type: 'user_added',
-            description: 'New user added to the system',
-            timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-            metadata: {
-              email: 'john@example.com',
-            },
-          },
-          {
-            id: '5',
-            type: 'api_request',
-            description: 'API request failed',
-            timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-            metadata: {
-              keyPrefix: 'sk_live_err123',
-              model: 'claude-3-haiku',
-              status: 'error',
-            },
-          },
-          {
-            id: '6',
-            type: 'provider_added',
-            description: 'New provider configured',
-            timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-            metadata: {
-              provider: 'AWS Bedrock',
-            },
-          },
-          {
-            id: '7',
-            type: 'key_revoked',
-            description: 'API key revoked',
-            timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-            metadata: {
-              keyPrefix: 'sk_live_old999',
-            },
-          },
-          {
-            id: '8',
-            type: 'api_request',
-            description: 'API request to Claude Haiku',
-            timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
-            metadata: {
-              keyPrefix: 'sk_live_abc123',
-              model: 'claude-3-haiku',
-              status: 'success',
-            },
-          },
-        ];
+        const response = await fetch('/api/admin/activity?limit=50&days=7');
+        const data = await response.json();
 
-        setActivities(mockActivities);
+        if (data.success && data.activities) {
+          setActivities(data.activities);
+        }
       } catch {
         // Silently fail, will show empty state
       } finally {
@@ -238,13 +159,6 @@ export default function AdminDashboard() {
       description: 'Manage users and their permissions',
       icon: Users,
       color: 'bg-violet-500/10 text-violet-500',
-    },
-    {
-      href: '/admin/providers',
-      title: 'Provider Settings',
-      description: 'Configure Claude API providers and endpoints',
-      icon: Zap,
-      color: 'bg-amber-500/10 text-amber-500',
     },
   ];
 
@@ -418,12 +332,6 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        {/* Security Notice */}
-        <AlertCard
-          title="Security Notice"
-          description="Authentication is not yet implemented. In production, protect these routes with NextAuth.js or your preferred authentication solution."
-          variant="warning"
-        />
       </div>
     </AppLayout>
   );

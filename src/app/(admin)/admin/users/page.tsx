@@ -60,54 +60,17 @@ export default function UserManagementPage() {
 
   const fetchUsers = async () => {
     try {
-      // Simulated data - replace with actual API call
-      const mockUsers: User[] = [
-        {
-          id: '1',
-          email: 'admin@example.com',
-          name: 'Admin User',
-          role: 'admin',
-          isActive: true,
-          createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-          lastActiveAt: new Date().toISOString(),
-          apiKeyCount: 5,
-        },
-        {
-          id: '2',
-          email: 'john@example.com',
-          name: 'John Doe',
-          role: 'user',
-          isActive: true,
-          createdAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
-          lastActiveAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-          apiKeyCount: 2,
-        },
-        {
-          id: '3',
-          email: 'jane@example.com',
-          name: 'Jane Smith',
-          role: 'user',
-          isActive: true,
-          createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-          lastActiveAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-          apiKeyCount: 3,
-        },
-        {
-          id: '4',
-          email: 'inactive@example.com',
-          name: 'Inactive User',
-          role: 'user',
-          isActive: false,
-          createdAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
-          lastActiveAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
-          apiKeyCount: 0,
-        },
-      ];
+      const response = await fetch('/api/admin/users');
+      const data = await response.json();
 
-      setUsers(mockUsers);
-    } catch {
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to fetch users');
+      }
+
+      setUsers(data.users || []);
+    } catch (error) {
       toast.error('Failed to fetch users', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     } finally {
       setLoading(false);
@@ -119,29 +82,36 @@ export default function UserManagementPage() {
     setSubmitting(true);
 
     try {
-      // Simulated API call - replace with actual implementation
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const response = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          name: formData.name,
+          password: formData.password,
+          role: formData.role,
+        }),
+      });
 
-      const newUser: User = {
-        id: String(Date.now()),
-        email: formData.email,
-        name: formData.name,
-        role: formData.role,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        lastActiveAt: null,
-        apiKeyCount: 0,
-      };
+      const data = await response.json();
 
-      setUsers([...users, newUser]);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create user');
+      }
+
+      // Refresh the user list
+      await fetchUsers();
+
       setShowCreateForm(false);
       setFormData({ email: '', name: '', role: 'user', password: '' });
       toast.success('User created successfully', {
         description: `${formData.email} has been added`,
       });
-    } catch {
+    } catch (error) {
       toast.error('Failed to create user', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     } finally {
       setSubmitting(false);
@@ -155,30 +125,35 @@ export default function UserManagementPage() {
     setSubmitting(true);
 
     try {
-      // Simulated API call - replace with actual implementation
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const response = await fetch(`/api/admin/users/${editingUser.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          name: formData.name,
+          password: formData.password || undefined,
+        }),
+      });
 
-      setUsers(
-        users.map((user) =>
-          user.id === editingUser.id
-            ? {
-                ...user,
-                email: formData.email,
-                name: formData.name,
-                role: formData.role,
-              }
-            : user
-        )
-      );
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update user');
+      }
+
+      // Refresh the user list
+      await fetchUsers();
 
       setEditingUser(null);
       setFormData({ email: '', name: '', role: 'user', password: '' });
       toast.success('User updated successfully', {
         description: 'Changes have been saved',
       });
-    } catch {
+    } catch (error) {
       toast.error('Failed to update user', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     } finally {
       setSubmitting(false);
@@ -186,27 +161,11 @@ export default function UserManagementPage() {
   };
 
   const handleToggleUserStatus = async (user: User) => {
-    try {
-      // Simulated API call - replace with actual implementation
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      setUsers(
-        users.map((u) =>
-          u.id === user.id ? { ...u, isActive: !u.isActive } : u
-        )
-      );
-
-      toast.success(
-        user.isActive ? 'User deactivated' : 'User activated',
-        {
-          description: `${user.email} is now ${user.isActive ? 'inactive' : 'active'}`,
-        }
-      );
-    } catch {
-      toast.error('Failed to update user status', {
-        description: 'An unexpected error occurred',
-      });
-    }
+    // Note: The admins table doesn't have an isActive field
+    // This functionality is not currently supported
+    toast.error('Feature not available', {
+      description: 'User activation/deactivation is not currently supported',
+    });
   };
 
   const handleDeleteUser = async (user: User) => {
@@ -218,16 +177,25 @@ export default function UserManagementPage() {
       return;
 
     try {
-      // Simulated API call - replace with actual implementation
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      const response = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'DELETE',
+      });
 
-      setUsers(users.filter((u) => u.id !== user.id));
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to delete user');
+      }
+
+      // Refresh the user list
+      await fetchUsers();
+
       toast.success('User deleted successfully', {
         description: `${user.email} has been removed`,
       });
-    } catch {
+    } catch (error) {
       toast.error('Failed to delete user', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     }
   };
@@ -395,12 +363,6 @@ export default function UserManagementPage() {
           </Button>
         </div>
 
-        {/* Notice */}
-        <AlertCard
-          title="Note"
-          description="This is a demo implementation with mock data. In production, connect this to your authentication system and user database."
-          variant="info"
-        />
 
         {/* Create/Edit Form */}
         {showCreateForm && (

@@ -39,8 +39,10 @@ const adminNavItems: NavItem[] = [
   { label: "API Keys", href: "/admin/keys", icon: Key },
   { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
   { label: "Users", href: "/admin/users", icon: Users },
-  { label: "Providers", href: "/admin/providers", icon: Server },
-  { label: "Settings", href: "/admin/settings", icon: Settings },
+  // Note: Providers page removed - provider is a field per API key, not a separate entity
+  // { label: "Providers", href: "/admin/providers", icon: Server },
+  // Note: Settings page not yet implemented
+  // { label: "Settings", href: "/admin/settings", icon: Settings },
 ];
 
 export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
