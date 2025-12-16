@@ -77,7 +77,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       try {
         body = await request.json();
-      } catch (e) {
+      } catch {
         // Body might be empty or not JSON
       }
     }

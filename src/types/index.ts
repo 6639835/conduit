@@ -13,7 +13,7 @@ export interface CreateApiKeyRequest {
   requestsPerDay?: number;
   tokensPerDay?: number;
   monthlySpendLimitUsd?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreateApiKeyResponse {
@@ -37,7 +37,7 @@ export interface UpdateApiKeyRequest {
   tokensPerDay?: number;
   monthlySpendLimitUsd?: number;
   isActive?: boolean;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ListApiKeysResponse {
@@ -105,7 +105,7 @@ export interface ProxyRequest {
   method: string;
   path: string;
   headers: Headers;
-  body?: any;
+  body?: unknown;
 }
 
 export interface ProxyResponse {

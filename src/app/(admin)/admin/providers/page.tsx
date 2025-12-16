@@ -27,6 +27,7 @@ import {
   Trash2,
   Settings,
   RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 

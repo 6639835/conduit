@@ -17,14 +17,14 @@ export async function PATCH(
     const body: UpdateApiKeyRequest = await request.json();
 
     // Build update object
-    const updates: any = {
+    const updates: Partial<typeof apiKeys.$inferInsert> & { updatedAt: Date } = {
       updatedAt: new Date(),
     };
 
     if (body.name !== undefined) updates.name = body.name;
     if (body.requestsPerMinute !== undefined) updates.requestsPerMinute = body.requestsPerMinute;
     if (body.requestsPerDay !== undefined) updates.requestsPerDay = body.requestsPerDay;
-    if (body.tokensPerDay !== undefined) updates.tokensPerDay = BigInt(body.tokensPerDay);
+    if (body.tokensPerDay !== undefined) updates.tokensPerDay = body.tokensPerDay;
     if (body.monthlySpendLimitUsd !== undefined) updates.monthlySpendLimitUsd = body.monthlySpendLimitUsd;
     if (body.isActive !== undefined) updates.isActive = body.isActive;
     if (body.metadata !== undefined) updates.metadata = body.metadata;

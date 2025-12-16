@@ -185,10 +185,11 @@ const UsageCard = ({
 };
 
 interface AlertCardProps {
-  title: string;
-  description: string;
+  title?: string;
+  description?: string;
   variant?: "info" | "warning" | "error" | "success";
   className?: string;
+  children?: React.ReactNode;
 }
 
 const AlertCard = ({
@@ -196,6 +197,7 @@ const AlertCard = ({
   description,
   variant = "info",
   className,
+  children,
 }: AlertCardProps) => {
   const variantStyles = {
     info: "border-accent bg-accent/5",
@@ -209,8 +211,14 @@ const AlertCard = ({
       variant="outlined"
       className={cn("border-l-4 p-4", variantStyles[variant], className)}
     >
-      <h4 className="font-semibold">{title}</h4>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      {children ? (
+        children
+      ) : (
+        <>
+          <h4 className="font-semibold">{title}</h4>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        </>
+      )}
     </Card>
   );
 };

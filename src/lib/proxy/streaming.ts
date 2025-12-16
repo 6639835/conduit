@@ -22,14 +22,13 @@ export async function createStreamingResponse(
     throw new Error('Upstream response has no body');
   }
 
-  let usageData: Partial<StreamUsageData> = {
+  const usageData: Partial<StreamUsageData> = {
     tokensInput: 0,
     tokensOutput: 0,
     model: '',
   };
 
   const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -104,7 +103,7 @@ function parseSSEChunk(chunk: string, usageData: Partial<StreamUsageData>) {
           usageData.tokensInput = data.delta.usage.input_tokens || usageData.tokensInput;
           usageData.tokensOutput = data.delta.usage.output_tokens || usageData.tokensOutput;
         }
-      } catch (e) {
+      } catch {
         // Ignore JSON parse errors (non-JSON events)
       }
     }
@@ -123,7 +122,7 @@ export function isStreamingResponse(response: Response): boolean {
  * Parse non-streaming response to extract usage data
  */
 export async function parseNonStreamingResponse(response: Response): Promise<{
-  body: any;
+  body: unknown;
   usageData: StreamUsageData | null;
 }> {
   try {

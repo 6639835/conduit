@@ -24,7 +24,6 @@ import {
   Key,
   Shield,
   Clock,
-  AlertTriangle,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 

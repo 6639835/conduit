@@ -43,6 +43,7 @@ interface GetUserResponse {
 
 /**
  * GET /api/admin/users/[id] - Get a specific user
+ * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function GET(
   request: NextRequest,
@@ -112,6 +113,7 @@ export async function GET(
 
 /**
  * PATCH /api/admin/users/[id] - Update a user
+ * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function PATCH(
   request: NextRequest,
@@ -122,7 +124,7 @@ export async function PATCH(
     const body: UpdateUserRequest = await request.json();
 
     // Build update object
-    const updates: any = {
+    const updates: Partial<typeof admins.$inferInsert> & { updatedAt: Date } = {
       updatedAt: new Date(),
     };
 
@@ -210,6 +212,7 @@ export async function PATCH(
 
 /**
  * DELETE /api/admin/users/[id] - Delete a user
+ * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function DELETE(
   request: NextRequest,

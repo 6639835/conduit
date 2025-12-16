@@ -12,7 +12,6 @@ import {
   CardContent,
   DataTable,
   type Column,
-  AlertCard,
   SkeletonTable,
 } from '@/components/ui';
 import {
@@ -160,7 +159,7 @@ export default function UserManagementPage() {
     }
   };
 
-  const handleToggleUserStatus = async (user: User) => {
+  const handleToggleUserStatus = async () => {
     // Note: The admins table doesn't have an isActive field
     // This functionality is not currently supported
     toast.error('Feature not available', {
@@ -324,7 +323,7 @@ export default function UserManagementPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => handleToggleUserStatus(row)}
+            onClick={() => handleToggleUserStatus()}
             className={row.isActive ? 'text-destructive' : 'text-success'}
           >
             {row.isActive ? (

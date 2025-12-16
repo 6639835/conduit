@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { usageLogs, apiKeys } from '@/lib/db/schema';
-import { eq, and, gte, sql, desc } from 'drizzle-orm';
+import { eq, gte, sql, desc } from 'drizzle-orm';
 
 // Configure edge runtime
 export const runtime = 'edge';
@@ -102,7 +102,12 @@ export async function GET(request: NextRequest) {
       .execute();
 
     // Build model breakdown object
-    const modelBreakdown: Record<string, any> = {};
+    const modelBreakdown: Record<string, {
+      requests: number;
+      tokensInput: number;
+      tokensOutput: number;
+      costUsd: number;
+    }> = {};
     for (const row of modelData) {
       modelBreakdown[row.model] = {
         requests: row.requests,

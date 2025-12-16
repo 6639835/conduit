@@ -13,7 +13,7 @@ export interface ProxyOptions {
   path: string;
   method: string;
   headers: Headers;
-  body?: any;
+  body?: unknown;
 }
 
 /**

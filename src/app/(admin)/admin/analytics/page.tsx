@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { formatCost } from '@/lib/analytics/cost-calculator';
 import { AppLayout } from '@/components/layout';
 import {
@@ -71,11 +71,7 @@ export default function AdminAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState(30);
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, [timeRange]);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch(`/api/admin/analytics?days=${timeRange}`);
@@ -95,7 +91,11 @@ export default function AdminAnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [timeRange]);
+
+  useEffect(() => {
+    fetchAnalytics();
+  }, [fetchAnalytics]);
 
   const calculateSuccessRate = () => {
     if (!analytics) return 0;

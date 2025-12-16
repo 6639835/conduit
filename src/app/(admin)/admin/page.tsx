@@ -9,7 +9,6 @@ import {
   CardTitle,
   CardContent,
   MetricCard,
-  AlertCard,
   SkeletonMetricCard,
 } from '@/components/ui';
 import {
@@ -20,7 +19,6 @@ import {
   Activity,
   DollarSign,
   ArrowRight,
-  AlertTriangle,
 } from 'lucide-react';
 
 interface QuickStats {

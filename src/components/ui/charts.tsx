@@ -88,7 +88,6 @@ const UsageChart = ({
   className,
 }: UsageChartProps) => {
   const Chart = type === "area" ? AreaChart : LineChart;
-  const DataComponent = type === "area" ? Area : Line;
 
   return (
     <ChartWrapper title={title} description={description} className={className}>

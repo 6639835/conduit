@@ -8,12 +8,10 @@ import {
   BarChart3,
   Key,
   LayoutDashboard,
-  Settings,
   Users,
   Activity,
   Search,
   Gauge,
-  Server,
 } from "lucide-react";
 
 interface SidebarProps {

@@ -40,6 +40,7 @@ interface ListUsersResponse {
 
 /**
  * POST /api/admin/users - Create a new admin user
+ * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function POST(request: NextRequest) {
   try {
@@ -124,6 +125,7 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/admin/users - List all admin users
+ * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function GET() {
   try {

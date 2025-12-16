@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { usageLogs, apiKeys, admins } from '@/lib/db/schema';
-import { desc, gte, eq, sql } from 'drizzle-orm';
+import { desc, gte, eq } from 'drizzle-orm';
 
 // Configure edge runtime
 export const runtime = 'edge';

@@ -27,8 +27,8 @@ async function seed() {
     console.log('\n⚠️  IMPORTANT: Change the admin password in production!');
 
     process.exit(0);
-  } catch (error: any) {
-    if (error.code === '23505') {
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
       console.log('ℹ️  Admin user already exists');
       process.exit(0);
     }
