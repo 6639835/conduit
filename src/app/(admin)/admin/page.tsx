@@ -30,9 +30,25 @@ interface QuickStats {
   totalCost: number;
 }
 
+interface ActivityItem {
+  id: string;
+  type: 'api_request' | 'key_created' | 'key_revoked' | 'user_added' | 'provider_added';
+  description: string;
+  timestamp: string;
+  metadata?: {
+    keyPrefix?: string;
+    email?: string;
+    provider?: string;
+    model?: string;
+    status?: 'success' | 'error';
+  };
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<QuickStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(true);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -55,8 +71,151 @@ export default function AdminDashboard() {
       }
     };
 
+    const fetchActivities = async () => {
+      try {
+        // Simulated data - replace with actual API call
+        const mockActivities: ActivityItem[] = [
+          {
+            id: '1',
+            type: 'api_request',
+            description: 'API request to Claude Sonnet',
+            timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+            metadata: {
+              keyPrefix: 'sk_live_abc123',
+              model: 'claude-3-sonnet',
+              status: 'success',
+            },
+          },
+          {
+            id: '2',
+            type: 'key_created',
+            description: 'New API key created',
+            timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+            metadata: {
+              keyPrefix: 'sk_live_xyz789',
+            },
+          },
+          {
+            id: '3',
+            type: 'api_request',
+            description: 'API request to Claude Opus',
+            timestamp: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+            metadata: {
+              keyPrefix: 'sk_live_def456',
+              model: 'claude-3-opus',
+              status: 'success',
+            },
+          },
+          {
+            id: '4',
+            type: 'user_added',
+            description: 'New user added to the system',
+            timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+            metadata: {
+              email: 'john@example.com',
+            },
+          },
+          {
+            id: '5',
+            type: 'api_request',
+            description: 'API request failed',
+            timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+            metadata: {
+              keyPrefix: 'sk_live_err123',
+              model: 'claude-3-haiku',
+              status: 'error',
+            },
+          },
+          {
+            id: '6',
+            type: 'provider_added',
+            description: 'New provider configured',
+            timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+            metadata: {
+              provider: 'AWS Bedrock',
+            },
+          },
+          {
+            id: '7',
+            type: 'key_revoked',
+            description: 'API key revoked',
+            timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+            metadata: {
+              keyPrefix: 'sk_live_old999',
+            },
+          },
+          {
+            id: '8',
+            type: 'api_request',
+            description: 'API request to Claude Haiku',
+            timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+            metadata: {
+              keyPrefix: 'sk_live_abc123',
+              model: 'claude-3-haiku',
+              status: 'success',
+            },
+          },
+        ];
+
+        setActivities(mockActivities);
+      } catch {
+        // Silently fail, will show empty state
+      } finally {
+        setActivitiesLoading(false);
+      }
+    };
+
     fetchStats();
+    fetchActivities();
   }, []);
+
+  const getActivityIcon = (type: ActivityItem['type']) => {
+    switch (type) {
+      case 'api_request':
+        return Activity;
+      case 'key_created':
+      case 'key_revoked':
+        return Key;
+      case 'user_added':
+        return Users;
+      case 'provider_added':
+        return Zap;
+      default:
+        return Activity;
+    }
+  };
+
+  const getActivityColor = (type: ActivityItem['type'], status?: 'success' | 'error') => {
+    if (status === 'error') return 'text-destructive bg-destructive/10';
+
+    switch (type) {
+      case 'api_request':
+        return 'text-blue-500 bg-blue-500/10';
+      case 'key_created':
+        return 'text-success bg-success/10';
+      case 'key_revoked':
+        return 'text-destructive bg-destructive/10';
+      case 'user_added':
+        return 'text-violet-500 bg-violet-500/10';
+      case 'provider_added':
+        return 'text-amber-500 bg-amber-500/10';
+      default:
+        return 'text-muted-foreground bg-muted';
+    }
+  };
+
+  const formatTimeAgo = (timestamp: string) => {
+    const now = Date.now();
+    const diff = now - new Date(timestamp).getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return `${days}d ago`;
+  };
 
   const quickLinks = [
     {
@@ -177,14 +336,85 @@ export default function AdminDashboard() {
         {/* Recent Activity */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Recent Activity</CardTitle>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Recent Activity
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-center py-8 text-muted-foreground">
-              <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>Activity feed coming soon</p>
-              <p className="text-sm">View detailed analytics for now</p>
-            </div>
+            {activitiesLoading ? (
+              <div className="space-y-4">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="flex items-start gap-4 animate-pulse">
+                    <div className="rounded-lg p-2 bg-muted w-10 h-10" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 bg-muted rounded w-3/4" />
+                      <div className="h-3 bg-muted rounded w-1/2" />
+                    </div>
+                    <div className="h-3 bg-muted rounded w-16" />
+                  </div>
+                ))}
+              </div>
+            ) : activities.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No recent activity</p>
+                <p className="text-sm">Activity will appear here as users interact with the gateway</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {activities.slice(0, 8).map((activity) => {
+                  const Icon = getActivityIcon(activity.type);
+                  const colorClass = getActivityColor(activity.type, activity.metadata?.status);
+
+                  return (
+                    <div key={activity.id} className="flex items-start gap-4 group">
+                      <div className={`rounded-lg p-2 ${colorClass}`}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{activity.description}</p>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                          {activity.metadata?.keyPrefix && (
+                            <code className="font-mono">{activity.metadata.keyPrefix}</code>
+                          )}
+                          {activity.metadata?.email && (
+                            <span>{activity.metadata.email}</span>
+                          )}
+                          {activity.metadata?.provider && (
+                            <span>{activity.metadata.provider}</span>
+                          )}
+                          {activity.metadata?.model && (
+                            <span className="px-1.5 py-0.5 bg-muted rounded">
+                              {activity.metadata.model}
+                            </span>
+                          )}
+                          {activity.metadata?.status === 'error' && (
+                            <span className="px-1.5 py-0.5 bg-destructive/20 text-destructive rounded">
+                              Failed
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatTimeAgo(activity.timestamp)}
+                      </span>
+                    </div>
+                  );
+                })}
+                {activities.length > 8 && (
+                  <div className="pt-4 border-t">
+                    <Link
+                      href="/admin/analytics"
+                      className="text-sm text-accent hover:underline flex items-center gap-1"
+                    >
+                      View all activity
+                      <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 
