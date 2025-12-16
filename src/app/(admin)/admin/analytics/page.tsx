@@ -18,7 +18,6 @@ import {
   UsageChart,
   DonutChart,
   StackedBarChart,
-  useToast,
 } from '@/components/ui';
 import {
   Activity,
@@ -28,6 +27,7 @@ import {
   TrendingUp,
   RefreshCw,
 } from 'lucide-react';
+import { toast } from '@/lib/toast';
 
 interface AnalyticsData {
   overview: {
@@ -70,7 +70,6 @@ export default function AdminAnalyticsPage() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState(30);
-  const { addToast } = useToast();
 
   useEffect(() => {
     fetchAnalytics();
@@ -85,17 +84,13 @@ export default function AdminAnalyticsPage() {
       if (data.success && data.analytics) {
         setAnalytics(data.analytics);
       } else {
-        addToast({
-          title: 'Error',
+        toast.error('Failed to fetch analytics', {
           description: data.error || 'Failed to fetch analytics',
-          variant: 'error',
         });
       }
     } catch {
-      addToast({
-        title: 'Error',
-        description: 'Failed to fetch analytics data',
-        variant: 'error',
+      toast.error('Failed to fetch analytics data', {
+        description: 'An unexpected error occurred',
       });
     } finally {
       setLoading(false);

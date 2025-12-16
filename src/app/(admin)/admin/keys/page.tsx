@@ -15,7 +15,6 @@ import {
   type Column,
   AlertCard,
   SkeletonTable,
-  useToast,
 } from '@/components/ui';
 import {
   Plus,
@@ -27,6 +26,7 @@ import {
   Clock,
   AlertTriangle,
 } from 'lucide-react';
+import { toast } from '@/lib/toast';
 
 interface ApiKeyRow {
   id: string;
@@ -47,7 +47,6 @@ export default function AdminKeysPage() {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const { addToast } = useToast();
 
   const [formData, setFormData] = useState({
     name: '',
@@ -70,10 +69,8 @@ export default function AdminKeysPage() {
         setKeys(data.apiKeys as ApiKeyRow[]);
       }
     } catch {
-      addToast({
-        title: 'Error',
-        description: 'Failed to fetch API keys',
-        variant: 'error',
+      toast.error('Failed to fetch API keys', {
+        description: 'An unexpected error occurred',
       });
     } finally {
       setLoading(false);
@@ -105,23 +102,17 @@ export default function AdminKeysPage() {
           requestsPerDay: 1000,
           tokensPerDay: 1000000,
         });
-        addToast({
-          title: 'Success',
-          description: 'API key created successfully',
-          variant: 'success',
+        toast.success('API key created successfully', {
+          description: 'Your new API key is ready to use',
         });
       } else {
-        addToast({
-          title: 'Error',
-          description: data.error || 'Failed to create API key',
-          variant: 'error',
+        toast.error('Failed to create API key', {
+          description: data.error || 'An unexpected error occurred',
         });
       }
     } catch {
-      addToast({
-        title: 'Error',
-        description: 'Failed to create API key',
-        variant: 'error',
+      toast.error('Failed to create API key', {
+        description: 'An unexpected error occurred',
       });
     } finally {
       setSubmitting(false);
@@ -138,23 +129,17 @@ export default function AdminKeysPage() {
 
       if (response.ok) {
         fetchKeys();
-        addToast({
-          title: 'Success',
-          description: 'API key revoked successfully',
-          variant: 'success',
+        toast.success('API key revoked successfully', {
+          description: 'The API key has been deactivated',
         });
       } else {
-        addToast({
-          title: 'Error',
-          description: 'Failed to revoke API key',
-          variant: 'error',
+        toast.error('Failed to revoke API key', {
+          description: 'An unexpected error occurred',
         });
       }
     } catch {
-      addToast({
-        title: 'Error',
-        description: 'Failed to revoke API key',
-        variant: 'error',
+      toast.error('Failed to revoke API key', {
+        description: 'An unexpected error occurred',
       });
     }
   };
@@ -163,10 +148,8 @@ export default function AdminKeysPage() {
     await navigator.clipboard.writeText(text);
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 2000);
-    addToast({
-      title: 'Copied',
-      description: 'API key copied to clipboard',
-      variant: 'success',
+    toast.success('Copied to clipboard', {
+      description: 'API key copied successfully',
     });
   };
 

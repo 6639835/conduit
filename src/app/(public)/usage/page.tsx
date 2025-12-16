@@ -16,7 +16,6 @@ import {
   AlertCard,
   SkeletonMetricCard,
   DonutChart,
-  useToast,
 } from '@/components/ui';
 import {
   Activity,
@@ -26,12 +25,12 @@ import {
   Zap,
   Search,
 } from 'lucide-react';
+import { toast } from '@/lib/toast';
 
 export default function UsagePage() {
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [usageData, setUsageData] = useState<UsageResponse | null>(null);
-  const { addToast } = useToast();
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,25 +41,17 @@ export default function UsagePage() {
       const data: UsageResponse = await response.json();
 
       if (!data.success) {
-        addToast({
-          title: 'Error',
-          description: data.error || 'Failed to fetch usage data',
-          variant: 'error',
+        toast.error('Failed to fetch usage data', {
+          description: data.error || 'An unexpected error occurred',
         });
         setUsageData(null);
       } else {
         setUsageData(data);
-        addToast({
-          title: 'Success',
-          description: 'Usage data loaded successfully',
-          variant: 'success',
-        });
+        // Don't show success toast for routine data fetches - it's annoying
       }
     } catch {
-      addToast({
-        title: 'Error',
-        description: 'Failed to fetch usage data',
-        variant: 'error',
+      toast.error('Failed to fetch usage data', {
+        description: 'An unexpected error occurred',
       });
       setUsageData(null);
     } finally {

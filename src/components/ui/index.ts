@@ -19,7 +19,7 @@ export {
   SkeletonTable,
   SkeletonChart,
 } from "./skeleton";
-export { useToast } from "./toast-wrapper";
+export { Toaster } from "./sonner";
 export { DataTable, type Column } from "./table";
 export {
   ChartWrapper,
