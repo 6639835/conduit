@@ -3,16 +3,38 @@
 import { useState } from 'react';
 import { formatCost } from '@/lib/analytics/cost-calculator';
 import type { UsageResponse } from '@/types';
+import { AppLayout } from '@/components/layout';
+import {
+  Button,
+  Input,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  MetricCard,
+  UsageCard,
+  AlertCard,
+  SkeletonMetricCard,
+  DonutChart,
+  useToast,
+} from '@/components/ui';
+import {
+  Activity,
+  ArrowUpRight,
+  ArrowDownRight,
+  DollarSign,
+  Zap,
+  Search,
+} from 'lucide-react';
 
 export default function UsagePage() {
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [usageData, setUsageData] = useState<UsageResponse | null>(null);
+  const { addToast } = useToast();
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
 
     try {
@@ -20,21 +42,42 @@ export default function UsagePage() {
       const data: UsageResponse = await response.json();
 
       if (!data.success) {
-        setError(data.error || 'Failed to fetch usage data');
+        addToast({
+          title: 'Error',
+          description: data.error || 'Failed to fetch usage data',
+          variant: 'error',
+        });
         setUsageData(null);
       } else {
         setUsageData(data);
+        addToast({
+          title: 'Success',
+          description: 'Usage data loaded successfully',
+          variant: 'success',
+        });
       }
-    } catch (err) {
-      setError('Failed to fetch usage data');
+    } catch {
+      addToast({
+        title: 'Error',
+        description: 'Failed to fetch usage data',
+        variant: 'error',
+      });
       setUsageData(null);
     } finally {
       setLoading(false);
     }
   };
 
+  // Transform model breakdown data for chart
+  const modelChartData = usageData?.usage?.modelBreakdown
+    ? Object.entries(usageData.usage.modelBreakdown).map(([name, stats]) => ({
+        name: name.replace('claude-', '').replace('-', ' '),
+        value: stats.requests,
+      }))
+    : [];
+
   return (
-    <main className="min-h-screen p-8">
+    <AppLayout>
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Header */}
         <div className="space-y-2">
@@ -45,124 +88,189 @@ export default function UsagePage() {
         </div>
 
         {/* Key Search Form */}
-        <form onSubmit={handleSearch} className="space-y-4">
-          <div className="flex gap-4">
-            <input
-              type="text"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-cond_your-api-key-here"
-              className="flex-1 px-4 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-accent"
-              required
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-2 bg-accent text-accent-foreground rounded-lg font-medium hover:opacity-90 transition disabled:opacity-50"
-            >
-              {loading ? 'Loading...' : 'View Usage'}
-            </button>
+        <Card className="p-6">
+          <form onSubmit={handleSearch} className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex-1">
+                <Input
+                  type="text"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="sk-cond_your-api-key-here"
+                  label="API Key"
+                  required
+                />
+              </div>
+              <div className="flex items-end">
+                <Button type="submit" isLoading={loading}>
+                  <Search className="h-4 w-4 mr-2" />
+                  View Usage
+                </Button>
+              </div>
+            </div>
+          </form>
+        </Card>
+
+        {/* Loading State */}
+        {loading && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <SkeletonMetricCard key={i} />
+            ))}
           </div>
-          {error && (
-            <p className="text-destructive text-sm">{error}</p>
-          )}
-        </form>
+        )}
 
         {/* Usage Stats */}
-        {usageData?.usage && (
+        {usageData?.usage && !loading && (
           <div className="space-y-6">
             {/* Overview Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-6 border border-border rounded-lg space-y-2">
-                <p className="text-sm text-muted-foreground">Total Requests</p>
-                <p className="text-3xl font-bold">{usageData.usage.totalRequests.toLocaleString()}</p>
-                <p className="text-xs text-success">
-                  {usageData.usage.successfulRequests} successful
-                </p>
-              </div>
+              <MetricCard
+                title="Total Requests"
+                value={usageData.usage.totalRequests.toLocaleString()}
+                description={`${usageData.usage.successfulRequests} successful`}
+                icon={Activity}
+                trend={{
+                  value: Math.round(
+                    (usageData.usage.successfulRequests / usageData.usage.totalRequests) * 100
+                  ),
+                  isPositive: true,
+                }}
+              />
 
-              <div className="p-6 border border-border rounded-lg space-y-2">
-                <p className="text-sm text-muted-foreground">Input Tokens</p>
-                <p className="text-3xl font-bold">{usageData.usage.totalTokensInput.toLocaleString()}</p>
-              </div>
+              <MetricCard
+                title="Input Tokens"
+                value={usageData.usage.totalTokensInput.toLocaleString()}
+                icon={ArrowUpRight}
+              />
 
-              <div className="p-6 border border-border rounded-lg space-y-2">
-                <p className="text-sm text-muted-foreground">Output Tokens</p>
-                <p className="text-3xl font-bold">{usageData.usage.totalTokensOutput.toLocaleString()}</p>
-              </div>
+              <MetricCard
+                title="Output Tokens"
+                value={usageData.usage.totalTokensOutput.toLocaleString()}
+                icon={ArrowDownRight}
+              />
 
-              <div className="p-6 border border-border rounded-lg space-y-2">
-                <p className="text-sm text-muted-foreground">Total Cost</p>
-                <p className="text-3xl font-bold">
-                  {formatCost(usageData.usage.totalCostUsd)}
-                </p>
-              </div>
+              <MetricCard
+                title="Total Cost"
+                value={formatCost(usageData.usage.totalCostUsd)}
+                icon={DollarSign}
+              />
             </div>
 
             {/* Quota Remaining */}
-            <div className="p-6 border border-border rounded-lg space-y-4">
-              <h2 className="text-xl font-semibold">Remaining Quota</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {usageData.usage.quotaRemaining.requestsPerMinute !== null && (
-                  <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">Requests/Minute</p>
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-2xl font-bold">
-                        {usageData.usage.quotaRemaining.requestsPerMinute}
-                      </p>
-                      <p className="text-sm text-muted-foreground">remaining</p>
-                    </div>
-                  </div>
-                )}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {usageData.usage.quotaRemaining.requestsPerMinute !== null && (
+                <UsageCard
+                  title="Requests per Minute"
+                  used={
+                    (usageData.usage.quotaRemaining.requestsPerMinute || 0) > 0
+                      ? 60 - (usageData.usage.quotaRemaining.requestsPerMinute || 0)
+                      : 60
+                  }
+                  total={60}
+                  unit="req/min"
+                />
+              )}
 
-                {usageData.usage.quotaRemaining.requestsPerDay !== null && (
-                  <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">Requests/Day</p>
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-2xl font-bold">
-                        {usageData.usage.quotaRemaining.requestsPerDay}
-                      </p>
-                      <p className="text-sm text-muted-foreground">remaining</p>
-                    </div>
-                  </div>
-                )}
+              {usageData.usage.quotaRemaining.requestsPerDay !== null && (
+                <UsageCard
+                  title="Requests per Day"
+                  used={
+                    1000 - (usageData.usage.quotaRemaining.requestsPerDay || 0)
+                  }
+                  total={1000}
+                  unit="req/day"
+                />
+              )}
 
-                {usageData.usage.quotaRemaining.tokensPerDay !== null && (
-                  <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">Tokens/Day</p>
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-2xl font-bold">
-                        {usageData.usage.quotaRemaining.tokensPerDay.toLocaleString()}
-                      </p>
-                      <p className="text-sm text-muted-foreground">remaining</p>
-                    </div>
-                  </div>
-                )}
-              </div>
+              {usageData.usage.quotaRemaining.tokensPerDay !== null && (
+                <UsageCard
+                  title="Tokens per Day"
+                  used={
+                    1000000 - (usageData.usage.quotaRemaining.tokensPerDay || 0)
+                  }
+                  total={1000000}
+                  unit="tokens"
+                />
+              )}
             </div>
 
-            {/* Model Breakdown */}
+            {/* Model Breakdown - Two column layout */}
             {Object.keys(usageData.usage.modelBreakdown).length > 0 && (
-              <div className="p-6 border border-border rounded-lg space-y-4">
-                <h2 className="text-xl font-semibold">Model Breakdown</h2>
-                <div className="space-y-3">
-                  {Object.entries(usageData.usage.modelBreakdown).map(([model, stats]) => (
-                    <div key={model} className="flex items-center justify-between py-3 border-b border-border last:border-0">
-                      <div className="space-y-1">
-                        <p className="font-medium">{model}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {stats.requests} requests • {(stats.tokensInput + stats.tokensOutput).toLocaleString()} tokens
-                        </p>
-                      </div>
-                      <p className="text-lg font-semibold">{formatCost(stats.costUsd)}</p>
-                    </div>
-                  ))}
-                </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Chart */}
+                <DonutChart
+                  data={modelChartData}
+                  title="Requests by Model"
+                  description="Distribution of API requests across Claude models"
+                  height={280}
+                />
+
+                {/* Detailed Breakdown */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Model Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {Object.entries(usageData.usage.modelBreakdown).map(
+                      ([model, stats]) => (
+                        <div
+                          key={model}
+                          className="flex items-center justify-between py-3 border-b border-border last:border-0"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <Zap className="h-4 w-4 text-accent" />
+                              <p className="font-medium">{model}</p>
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              {stats.requests} requests •{' '}
+                              {(stats.tokensInput + stats.tokensOutput).toLocaleString()}{' '}
+                              tokens
+                            </p>
+                          </div>
+                          <p className="text-lg font-semibold">
+                            {formatCost(stats.costUsd)}
+                          </p>
+                        </div>
+                      )
+                    )}
+                  </CardContent>
+                </Card>
               </div>
+            )}
+
+            {/* Alert if over quota */}
+            {(usageData.usage.quotaRemaining.requestsPerMinute === 0 ||
+              usageData.usage.quotaRemaining.requestsPerDay === 0 ||
+              usageData.usage.quotaRemaining.tokensPerDay === 0) && (
+              <AlertCard
+                title="Quota Limit Reached"
+                description="You have reached one or more of your usage limits. Please wait for the limit to reset or contact your administrator."
+                variant="warning"
+              />
             )}
           </div>
         )}
+
+        {/* Empty State */}
+        {!usageData && !loading && (
+          <Card className="p-12 text-center">
+            <div className="flex flex-col items-center gap-4">
+              <div className="rounded-full bg-muted p-4">
+                <Search className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold">No Usage Data</h3>
+                <p className="text-muted-foreground max-w-sm mx-auto">
+                  Enter your API key above to view your usage statistics,
+                  remaining quota, and cost breakdown.
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
       </div>
-    </main>
+    </AppLayout>
   );
 }

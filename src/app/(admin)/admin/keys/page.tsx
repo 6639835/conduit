@@ -1,16 +1,54 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import type { ListApiKeysResponse, CreateApiKeyResponse } from '@/types';
+import { AppLayout } from '@/components/layout';
+import {
+  Button,
+  Input,
+  Select,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  DataTable,
+  type Column,
+  AlertCard,
+  SkeletonTable,
+  useToast,
+} from '@/components/ui';
+import {
+  Plus,
+  Copy,
+  Check,
+  X,
+  Key,
+  Shield,
+  Clock,
+  AlertTriangle,
+} from 'lucide-react';
+
+interface ApiKeyRow {
+  id: string;
+  keyPrefix: string;
+  name: string | null;
+  provider: string;
+  isActive: boolean;
+  createdAt: string;
+  requestsPerMinute: number;
+  requestsPerDay: number;
+  tokensPerDay: number;
+}
 
 export default function AdminKeysPage() {
-  const [keys, setKeys] = useState<any[]>([]);
+  const [keys, setKeys] = useState<ApiKeyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const { addToast } = useToast();
 
-  // Form state
   const [formData, setFormData] = useState({
     name: '',
     provider: 'official',
@@ -29,10 +67,14 @@ export default function AdminKeysPage() {
       const response = await fetch('/api/admin/keys');
       const data: ListApiKeysResponse = await response.json();
       if (data.success && data.apiKeys) {
-        setKeys(data.apiKeys);
+        setKeys(data.apiKeys as ApiKeyRow[]);
       }
-    } catch (error) {
-      console.error('Failed to fetch keys:', error);
+    } catch {
+      addToast({
+        title: 'Error',
+        description: 'Failed to fetch API keys',
+        variant: 'error',
+      });
     } finally {
       setLoading(false);
     }
@@ -40,6 +82,8 @@ export default function AdminKeysPage() {
 
   const handleCreateKey = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
+
     try {
       const response = await fetch('/api/admin/keys', {
         method: 'POST',
@@ -61,11 +105,26 @@ export default function AdminKeysPage() {
           requestsPerDay: 1000,
           tokensPerDay: 1000000,
         });
+        addToast({
+          title: 'Success',
+          description: 'API key created successfully',
+          variant: 'success',
+        });
       } else {
-        alert(`Error: ${data.error}`);
+        addToast({
+          title: 'Error',
+          description: data.error || 'Failed to create API key',
+          variant: 'error',
+        });
       }
-    } catch (error) {
-      alert('Failed to create API key');
+    } catch {
+      addToast({
+        title: 'Error',
+        description: 'Failed to create API key',
+        variant: 'error',
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -79,202 +138,318 @@ export default function AdminKeysPage() {
 
       if (response.ok) {
         fetchKeys();
+        addToast({
+          title: 'Success',
+          description: 'API key revoked successfully',
+          variant: 'success',
+        });
       } else {
-        alert('Failed to revoke key');
+        addToast({
+          title: 'Error',
+          description: 'Failed to revoke API key',
+          variant: 'error',
+        });
       }
-    } catch (error) {
-      alert('Failed to revoke key');
+    } catch {
+      addToast({
+        title: 'Error',
+        description: 'Failed to revoke API key',
+        variant: 'error',
+      });
     }
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    alert('Copied to clipboard!');
+  const copyToClipboard = async (text: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 2000);
+    addToast({
+      title: 'Copied',
+      description: 'API key copied to clipboard',
+      variant: 'success',
+    });
   };
 
+  const columns: Column<ApiKeyRow>[] = [
+    {
+      key: 'keyPrefix',
+      header: 'Key',
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          <Key className="h-4 w-4 text-muted-foreground" />
+          <code className="font-mono text-sm">{row.keyPrefix}...</code>
+        </div>
+      ),
+    },
+    {
+      key: 'name',
+      header: 'Name',
+      sortable: true,
+      render: (row) => row.name || <span className="text-muted-foreground">-</span>,
+    },
+    {
+      key: 'provider',
+      header: 'Provider',
+      sortable: true,
+      render: (row) => (
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-muted text-xs font-medium">
+          <Shield className="h-3 w-3" />
+          {row.provider}
+        </span>
+      ),
+    },
+    {
+      key: 'isActive',
+      header: 'Status',
+      sortable: true,
+      render: (row) => (
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+            row.isActive
+              ? 'bg-success/20 text-success'
+              : 'bg-destructive/20 text-destructive'
+          }`}
+        >
+          {row.isActive ? (
+            <>
+              <Check className="h-3 w-3" />
+              Active
+            </>
+          ) : (
+            <>
+              <X className="h-3 w-3" />
+              Revoked
+            </>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'createdAt',
+      header: 'Created',
+      sortable: true,
+      render: (row) => (
+        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+          <Clock className="h-3 w-3" />
+          {new Date(row.createdAt).toLocaleDateString()}
+        </div>
+      ),
+    },
+    {
+      key: 'limits',
+      header: 'Limits',
+      render: (row) => (
+        <div className="text-xs text-muted-foreground">
+          {row.requestsPerMinute}/min • {row.requestsPerDay}/day •{' '}
+          {Number(row.tokensPerDay).toLocaleString()} tokens
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      render: (row) =>
+        row.isActive ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleRevokeKey(row.id)}
+            className="text-destructive border-destructive hover:bg-destructive hover:text-white"
+          >
+            Revoke
+          </Button>
+        ) : null,
+    },
+  ];
+
   return (
-    <main className="min-h-screen p-8">
+    <AppLayout>
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground">
-              ← Back to Dashboard
-            </Link>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
             <h1 className="text-3xl font-bold">API Key Management</h1>
+            <p className="text-muted-foreground">
+              Create, view, and manage API keys for your Claude gateway
+            </p>
           </div>
-          <button
-            onClick={() => setShowCreateForm(true)}
-            className="px-4 py-2 bg-accent text-accent-foreground rounded-lg font-medium hover:opacity-90 transition"
-          >
+          <Button onClick={() => setShowCreateForm(true)}>
+            <Plus className="h-4 w-4 mr-2" />
             Create New Key
-          </button>
+          </Button>
         </div>
 
-        {/* Created Key Display (shown once after creation) */}
+        {/* Created Key Display */}
         {createdKey && (
-          <div className="p-6 border-2 border-accent rounded-lg space-y-3 bg-accent/5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">API Key Created Successfully!</h2>
-              <button
-                onClick={() => setCreatedKey(null)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Copy this key now - it will only be shown once:
-            </p>
-            <div className="flex gap-2">
-              <code className="flex-1 p-3 bg-background border border-border rounded font-mono text-sm">
-                {createdKey}
-              </code>
-              <button
-                onClick={() => copyToClipboard(createdKey)}
-                className="px-4 py-2 border border-border rounded hover:bg-muted transition"
-              >
-                Copy
-              </button>
-            </div>
-          </div>
+          <Card className="border-2 border-accent bg-accent/5">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Check className="h-5 w-5 text-accent" />
+                  API Key Created Successfully!
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setCreatedKey(null)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <AlertCard
+                title="Important"
+                description="Copy this key now - it will only be shown once!"
+                variant="warning"
+              />
+              <div className="flex gap-2">
+                <code className="flex-1 p-3 bg-background border border-border rounded-lg font-mono text-sm break-all">
+                  {createdKey}
+                </code>
+                <Button
+                  variant="outline"
+                  onClick={() => copyToClipboard(createdKey)}
+                >
+                  {copiedKey ? (
+                    <>
+                      <Check className="h-4 w-4 mr-2" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Create Form */}
         {showCreateForm && (
-          <div className="p-6 border border-border rounded-lg space-y-4 bg-muted/50">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">Create New API Key</h2>
-              <button
-                onClick={() => setShowCreateForm(false)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Cancel
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateKey} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Name (optional)</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="My API Key"
-                  className="w-full px-4 py-2 border border-border rounded-lg bg-background"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Provider</label>
-                <select
-                  value={formData.provider}
-                  onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
-                  className="w-full px-4 py-2 border border-border rounded-lg bg-background"
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">Create New API Key</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowCreateForm(false)}
                 >
-                  <option value="official">Claude Official API</option>
-                  <option value="bedrock">AWS Bedrock</option>
-                </select>
+                  Cancel
+                </Button>
               </div>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleCreateKey} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <Input
+                    label="Name (optional)"
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({ ...formData, name: e.target.value })
+                    }
+                    placeholder="My API Key"
+                  />
 
-              <div>
-                <label className="block text-sm font-medium mb-2">Target Claude API Key *</label>
-                <input
+                  <Select
+                    label="Provider"
+                    value={formData.provider}
+                    onChange={(e) =>
+                      setFormData({ ...formData, provider: e.target.value })
+                    }
+                  >
+                    <option value="official">Claude Official API</option>
+                    <option value="bedrock">AWS Bedrock</option>
+                  </Select>
+                </div>
+
+                <Input
+                  label="Target Claude API Key"
                   type="password"
                   value={formData.targetApiKey}
-                  onChange={(e) => setFormData({ ...formData, targetApiKey: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, targetApiKey: e.target.value })
+                  }
                   placeholder="sk-ant-..."
-                  className="w-full px-4 py-2 border border-border rounded-lg bg-background"
                   required
                 />
-              </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Requests/Min</label>
-                  <input
-                    type="number"
-                    value={formData.requestsPerMinute}
-                    onChange={(e) => setFormData({ ...formData, requestsPerMinute: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2 border border-border rounded-lg bg-background"
-                  />
+                <div className="space-y-4">
+                  <h4 className="font-medium">Rate Limits</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Input
+                      label="Requests per Minute"
+                      type="number"
+                      value={formData.requestsPerMinute}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          requestsPerMinute: parseInt(e.target.value),
+                        })
+                      }
+                    />
+                    <Input
+                      label="Requests per Day"
+                      type="number"
+                      value={formData.requestsPerDay}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          requestsPerDay: parseInt(e.target.value),
+                        })
+                      }
+                    />
+                    <Input
+                      label="Tokens per Day"
+                      type="number"
+                      value={formData.tokensPerDay}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          tokensPerDay: parseInt(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">Requests/Day</label>
-                  <input
-                    type="number"
-                    value={formData.requestsPerDay}
-                    onChange={(e) => setFormData({ ...formData, requestsPerDay: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2 border border-border rounded-lg bg-background"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">Tokens/Day</label>
-                  <input
-                    type="number"
-                    value={formData.tokensPerDay}
-                    onChange={(e) => setFormData({ ...formData, tokensPerDay: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2 border border-border rounded-lg bg-background"
-                  />
-                </div>
-              </div>
 
-              <button
-                type="submit"
-                className="w-full px-4 py-2 bg-accent text-accent-foreground rounded-lg font-medium hover:opacity-90 transition"
-              >
-                Create API Key
-              </button>
-            </form>
-          </div>
+                <Button type="submit" className="w-full" isLoading={submitting}>
+                  <Key className="h-4 w-4 mr-2" />
+                  Create API Key
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
         )}
 
         {/* Keys List */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Existing API Keys</h2>
-
-          {loading ? (
-            <p className="text-muted-foreground">Loading...</p>
-          ) : keys.length === 0 ? (
-            <p className="text-muted-foreground">No API keys created yet</p>
-          ) : (
-            <div className="space-y-3">
-              {keys.map((key) => (
-                <div
-                  key={key.id}
-                  className="p-4 border border-border rounded-lg flex items-center justify-between"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-3">
-                      <code className="font-mono text-sm">{key.keyPrefix}...</code>
-                      {key.name && <span className="text-sm font-medium">{key.name}</span>}
-                      <span className={`text-xs px-2 py-1 rounded ${key.isActive ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'}`}>
-                        {key.isActive ? 'Active' : 'Revoked'}
-                      </span>
-                      <span className="text-xs px-2 py-1 rounded bg-muted">
-                        {key.provider}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Created: {new Date(key.createdAt).toLocaleDateString()} •
-                      Limits: {key.requestsPerMinute}/min, {key.requestsPerDay}/day, {Number(key.tokensPerDay).toLocaleString()} tokens/day
-                    </p>
-                  </div>
-
-                  {key.isActive && (
-                    <button
-                      onClick={() => handleRevokeKey(key.id)}
-                      className="px-3 py-1 text-sm border border-destructive text-destructive rounded hover:bg-destructive hover:text-white transition"
-                    >
-                      Revoke
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Existing API Keys</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <SkeletonTable rows={5} />
+            ) : (
+              <DataTable
+                data={keys}
+                columns={columns}
+                searchable
+                searchPlaceholder="Search by name or key prefix..."
+                pageSize={10}
+                emptyMessage="No API keys created yet. Click 'Create New Key' to get started."
+                rowClassName={(row) =>
+                  !row.isActive ? 'opacity-60' : ''
+                }
+              />
+            )}
+          </CardContent>
+        </Card>
       </div>
-    </main>
+    </AppLayout>
   );
 }
