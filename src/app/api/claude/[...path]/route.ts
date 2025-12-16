@@ -22,12 +22,12 @@ export const runtime = 'edge';
  * 5. Stream response back to client
  * 6. Log usage asynchronously
  */
-async function handleRequest(request: NextRequest, params: Promise<{ path: string[] }>) {
+async function handleRequest(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const startTime = Date.now();
 
   try {
     // Extract path from params
-    const { path: pathSegments } = await params;
+    const { path: pathSegments } = await context.params;
     const path = `/${pathSegments.join('/')}`;
 
     // Extract request metadata for logging

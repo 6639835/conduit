@@ -24,12 +24,15 @@ export default function AdminDashboard() {
             </p>
           </Link>
 
-          <div className="p-6 border border-border rounded-lg opacity-50 cursor-not-allowed space-y-2">
+          <Link
+            href="/admin/analytics"
+            className="p-6 border border-border rounded-lg hover:border-accent transition space-y-2"
+          >
             <h2 className="text-xl font-semibold">Global Analytics</h2>
             <p className="text-muted-foreground">
-              View usage statistics across all API keys (Coming soon)
+              View usage statistics across all API keys
             </p>
-          </div>
+          </Link>
         </div>
 
         <div className="p-4 bg-muted rounded-lg">

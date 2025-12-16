@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
         targetApiKey: encryptedTargetKey,
         requestsPerMinute: body.requestsPerMinute || 60,
         requestsPerDay: body.requestsPerDay || 1000,
-        tokensPerDay: body.tokensPerDay ? BigInt(body.tokensPerDay) : BigInt(1000000),
+        tokensPerDay: body.tokensPerDay || 1000000,
         monthlySpendLimitUsd: body.monthlySpendLimitUsd || null,
         metadata: body.metadata || null,
         isActive: true,
