@@ -98,19 +98,6 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
             );
           })}
         </nav>
-
-        {/* Quick stats at bottom */}
-        <div className="absolute bottom-0 left-0 right-0 border-t border-border p-4">
-          <div className="rounded-lg bg-muted/50 p-3">
-            <p className="text-xs font-medium text-muted-foreground">
-              {isAdmin ? "System Status" : "Your Status"}
-            </p>
-            <div className="mt-2 flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
-              <span className="text-sm font-medium">All systems operational</span>
-            </div>
-          </div>
-        </div>
       </aside>
     </>
   );

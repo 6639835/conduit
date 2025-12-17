@@ -45,33 +45,6 @@ export const Header = ({ onMenuToggle, isMenuOpen }: HeaderProps) => {
         </div>
 
         <div className="flex items-center gap-4">
-          <nav className="hidden md:flex items-center gap-1">
-            <Link
-              href="/usage"
-              className={cn(
-                "px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                pathname === "/usage"
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              )}
-            >
-              Usage
-            </Link>
-            <Link
-              href="/admin"
-              className={cn(
-                "px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                isAdmin
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              )}
-            >
-              Admin
-            </Link>
-          </nav>
-
-          <div className="h-6 w-px bg-border hidden md:block" />
-
           {isAdmin && <NotificationsDropdown />}
 
           <UserMenu />
