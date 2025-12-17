@@ -41,7 +41,27 @@ CLAUDE_API_KEY=sk-ant-your-key-here
 npm run db:push
 ```
 
-### 4. Run Development Server
+### 4. Create Admin User
+
+Create your first admin user to access the dashboard:
+
+**Interactive mode** (recommended):
+```bash
+npm run db:seed
+```
+
+**Or specify credentials directly**:
+```bash
+npm run db:seed -- --email admin@example.com --password securepass --name "Admin User"
+```
+
+The script will:
+- ✅ Validate email format
+- ✅ Hash the password securely (bcrypt)
+- ✅ Create the admin user in the database
+- ✅ Warn if using a weak password
+
+### 5. Run Development Server
 
 ```bash
 npm run dev
@@ -51,9 +71,10 @@ Visit http://localhost:3000
 
 ## Usage
 
-### Admin: Create API Keys
+### Admin: Login and Create API Keys
 
-1. Go to http://localhost:3000/admin/keys
+1. Login at http://localhost:3000/login with your admin credentials
+2. Go to http://localhost:3000/admin/keys
 2. Click "Create New Key"
 3. Enter your Claude API key and set limits
 4. Copy the generated key (shown once)

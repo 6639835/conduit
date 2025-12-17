@@ -94,6 +94,11 @@ export interface UsageResponse {
       requestsPerDay: number | null;
       tokensPerDay: number | null;
     };
+    quotaLimits: {
+      requestsPerMinute: number | null;
+      requestsPerDay: number | null;
+      tokensPerDay: number | null;
+    };
   };
   error?: string;
 }

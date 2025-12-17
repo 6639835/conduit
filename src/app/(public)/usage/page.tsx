@@ -150,37 +150,41 @@ export default function UsagePage() {
 
             {/* Quota Remaining */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {usageData.usage.quotaRemaining.requestsPerMinute !== null && (
+              {usageData.usage.quotaRemaining.requestsPerMinute !== null &&
+               usageData.usage.quotaLimits.requestsPerMinute !== null && (
                 <UsageCard
                   title="Requests per Minute"
                   used={
-                    (usageData.usage.quotaRemaining.requestsPerMinute || 0) > 0
-                      ? 60 - (usageData.usage.quotaRemaining.requestsPerMinute || 0)
-                      : 60
+                    usageData.usage.quotaLimits.requestsPerMinute -
+                    (usageData.usage.quotaRemaining.requestsPerMinute || 0)
                   }
-                  total={60}
+                  total={usageData.usage.quotaLimits.requestsPerMinute}
                   unit="req/min"
                 />
               )}
 
-              {usageData.usage.quotaRemaining.requestsPerDay !== null && (
+              {usageData.usage.quotaRemaining.requestsPerDay !== null &&
+               usageData.usage.quotaLimits.requestsPerDay !== null && (
                 <UsageCard
                   title="Requests per Day"
                   used={
-                    1000 - (usageData.usage.quotaRemaining.requestsPerDay || 0)
+                    usageData.usage.quotaLimits.requestsPerDay -
+                    (usageData.usage.quotaRemaining.requestsPerDay || 0)
                   }
-                  total={1000}
+                  total={usageData.usage.quotaLimits.requestsPerDay}
                   unit="req/day"
                 />
               )}
 
-              {usageData.usage.quotaRemaining.tokensPerDay !== null && (
+              {usageData.usage.quotaRemaining.tokensPerDay !== null &&
+               usageData.usage.quotaLimits.tokensPerDay !== null && (
                 <UsageCard
                   title="Tokens per Day"
                   used={
-                    1000000 - (usageData.usage.quotaRemaining.tokensPerDay || 0)
+                    usageData.usage.quotaLimits.tokensPerDay -
+                    (usageData.usage.quotaRemaining.tokensPerDay || 0)
                   }
-                  total={1000000}
+                  total={usageData.usage.quotaLimits.tokensPerDay}
                   unit="tokens"
                 />
               )}

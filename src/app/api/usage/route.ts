@@ -104,6 +104,13 @@ export async function GET(request: NextRequest) {
     // Get remaining quota
     const quotaRemaining = await getRemainingQuota(apiKey);
 
+    // Get the configured quota limits
+    const quotaLimits = {
+      requestsPerMinute: apiKey.requestsPerMinute,
+      requestsPerDay: apiKey.requestsPerDay,
+      tokensPerDay: apiKey.tokensPerDay ? Number(apiKey.tokensPerDay) : null,
+    };
+
     const stats = usageData[0];
 
     return NextResponse.json(
@@ -118,6 +125,7 @@ export async function GET(request: NextRequest) {
           totalCostUsd: stats.totalCostUsd,
           modelBreakdown,
           quotaRemaining,
+          quotaLimits,
         },
       } as UsageResponse,
       { status: 200 }
