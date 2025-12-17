@@ -10,6 +10,36 @@ export const admins = pgTable('admins', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// Providers table (centralized Claude API provider configuration)
+export const providers = pgTable('providers', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  type: varchar('type', { length: 20 }).notNull().default('official'), // 'official', 'bedrock', 'custom'
+  endpoint: text('endpoint').notNull(),
+  apiKey: text('api_key').notNull(), // Encrypted Claude API key
+
+  // Status
+  isActive: boolean('is_active').notNull().default(true),
+  isDefault: boolean('is_default').notNull().default(false),
+  status: varchar('status', { length: 20 }).default('unknown'), // 'healthy', 'unhealthy', 'unknown'
+  lastTestedAt: timestamp('last_tested_at'),
+
+  // Default rate limits for API keys using this provider
+  defaultRateLimits: jsonb('default_rate_limits').notNull().default({
+    requestsPerMinute: 60,
+    requestsPerDay: 1000,
+    tokensPerDay: 1000000,
+  }),
+
+  // Metadata
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  nameIdx: index('providers_name_idx').on(table.name),
+  isActiveIdx: index('providers_is_active_idx').on(table.isActive),
+  isDefaultIdx: index('providers_is_default_idx').on(table.isDefault),
+}));
+
 // API keys table
 export const apiKeys = pgTable('api_keys', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -17,9 +47,12 @@ export const apiKeys = pgTable('api_keys', {
   keyPrefix: varchar('key_prefix', { length: 12 }).notNull(), // First 8 chars for display (e.g., "sk-cond_abc123...")
   name: varchar('name', { length: 255 }), // Optional friendly name
 
-  // Configuration
-  provider: varchar('provider', { length: 50 }).notNull().default('official'), // 'official' or 'bedrock'
-  targetApiKey: text('target_api_key').notNull(), // Encrypted Claude API key to use
+  // Configuration - references centralized providers table
+  providerId: uuid('provider_id').references(() => providers.id).notNull(),
+
+  // Legacy fields for backward compatibility (deprecated - use providerId instead)
+  provider: varchar('provider', { length: 50 }), // Legacy: 'official' or 'bedrock'
+  targetApiKey: text('target_api_key'), // Legacy: Encrypted Claude API key
 
   // Quotas
   requestsPerMinute: integer('requests_per_minute').default(60),
@@ -40,6 +73,7 @@ export const apiKeys = pgTable('api_keys', {
   keyHashIdx: uniqueIndex('key_hash_idx').on(table.keyHash),
   keyPrefixIdx: index('key_prefix_idx').on(table.keyPrefix),
   isActiveIdx: index('is_active_idx').on(table.isActive),
+  providerIdIdx: index('provider_id_idx').on(table.providerId),
 }));
 
 // Usage logs table (partitioned by date for performance)
@@ -118,36 +152,6 @@ export const rateLimitCounters = pgTable('rate_limit_counters', {
 }, (table) => ({
   uniqueWindow: uniqueIndex('rate_limit_counters_unique_window').on(table.apiKeyId, table.window, table.windowStart),
   expiresAtIdx: index('rate_limit_counters_expires_at_idx').on(table.expiresAt),
-}));
-
-// Providers table (centralized Claude API provider configuration)
-export const providers = pgTable('providers', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
-  type: varchar('type', { length: 20 }).notNull().default('official'), // 'official', 'bedrock', 'custom'
-  endpoint: text('endpoint').notNull(),
-  apiKey: text('api_key').notNull(), // Encrypted Claude API key
-
-  // Status
-  isActive: boolean('is_active').notNull().default(true),
-  isDefault: boolean('is_default').notNull().default(false),
-  status: varchar('status', { length: 20 }).default('unknown'), // 'healthy', 'unhealthy', 'unknown'
-  lastTestedAt: timestamp('last_tested_at'),
-
-  // Default rate limits for API keys using this provider
-  defaultRateLimits: jsonb('default_rate_limits').notNull().default({
-    requestsPerMinute: 60,
-    requestsPerDay: 1000,
-    tokensPerDay: 1000000,
-  }),
-
-  // Metadata
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-}, (table) => ({
-  nameIdx: index('providers_name_idx').on(table.name),
-  isActiveIdx: index('providers_is_active_idx').on(table.isActive),
-  isDefaultIdx: index('providers_is_default_idx').on(table.isDefault),
 }));
 
 // Type exports for TypeScript

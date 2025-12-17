@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { apiKeys } from '@/lib/db/schema';
+import { apiKeys, providers } from '@/lib/db/schema';
 import { generateApiKey } from '@/lib/auth/api-key';
-import { encryptApiKey } from '@/lib/utils/crypto';
-import { desc } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { CreateApiKeyRequest, CreateApiKeyResponse, ListApiKeysResponse } from '@/types';
 
 /**
@@ -15,22 +14,38 @@ export async function POST(request: NextRequest) {
     const body: CreateApiKeyRequest = await request.json();
 
     // Validate required fields
-    if (!body.provider || !body.targetApiKey) {
+    if (!body.provider) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Missing required fields: provider and targetApiKey',
+          error: 'Missing required field: provider',
         } as CreateApiKeyResponse,
         { status: 400 }
       );
     }
 
-    // Validate provider
-    if (!['official', 'bedrock'].includes(body.provider)) {
+    // Verify provider exists and is active
+    const [providerRecord] = await db
+      .select()
+      .from(providers)
+      .where(eq(providers.id, body.provider))
+      .limit(1);
+
+    if (!providerRecord) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Invalid provider. Must be "official" or "bedrock"',
+          error: 'Provider not found',
+        } as CreateApiKeyResponse,
+        { status: 404 }
+      );
+    }
+
+    if (!providerRecord.isActive) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Provider is not active',
         } as CreateApiKeyResponse,
         { status: 400 }
       );
@@ -39,9 +54,6 @@ export async function POST(request: NextRequest) {
     // Generate API key
     const { fullKey, keyHash, keyPrefix } = await generateApiKey();
 
-    // Encrypt target API key
-    const encryptedTargetKey = await encryptApiKey(body.targetApiKey);
-
     // Insert into database
     const [newApiKey] = await db
       .insert(apiKeys)
@@ -49,8 +61,7 @@ export async function POST(request: NextRequest) {
         keyHash,
         keyPrefix,
         name: body.name || null,
-        provider: body.provider,
-        targetApiKey: encryptedTargetKey,
+        providerId: body.provider, // Now using providerId
         requestsPerMinute: body.requestsPerMinute || 60,
         requestsPerDay: body.requestsPerDay || 1000,
         tokensPerDay: body.tokensPerDay || 1000000,
@@ -68,7 +79,7 @@ export async function POST(request: NextRequest) {
           fullKey, // Only returned once!
           keyPrefix: newApiKey.keyPrefix,
           name: newApiKey.name,
-          provider: newApiKey.provider,
+          provider: providerRecord.name, // Return provider name for display
           isActive: newApiKey.isActive,
           createdAt: newApiKey.createdAt.toISOString(),
         },
@@ -98,7 +109,8 @@ export async function GET() {
         id: apiKeys.id,
         keyPrefix: apiKeys.keyPrefix,
         name: apiKeys.name,
-        provider: apiKeys.provider,
+        providerId: apiKeys.providerId,
+        providerName: providers.name,
         isActive: apiKeys.isActive,
         revokedAt: apiKeys.revokedAt,
         requestsPerMinute: apiKeys.requestsPerMinute,
@@ -108,14 +120,21 @@ export async function GET() {
         updatedAt: apiKeys.updatedAt,
       })
       .from(apiKeys)
+      .leftJoin(providers, eq(apiKeys.providerId, providers.id))
       .orderBy(desc(apiKeys.createdAt));
 
     return NextResponse.json(
       {
         success: true,
         apiKeys: keys.map((key) => ({
-          ...key,
+          id: key.id,
+          keyPrefix: key.keyPrefix,
+          name: key.name,
+          provider: key.providerName || 'Unknown', // Display provider name
+          isActive: key.isActive,
           tokensPerDay: key.tokensPerDay ? Number(key.tokensPerDay) : null,
+          requestsPerMinute: key.requestsPerMinute,
+          requestsPerDay: key.requestsPerDay,
           revokedAt: key.revokedAt?.toISOString() || null,
           createdAt: key.createdAt.toISOString(),
           updatedAt: key.updatedAt.toISOString(),

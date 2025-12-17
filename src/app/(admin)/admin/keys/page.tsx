@@ -39,9 +39,23 @@ interface ApiKeyRow {
   tokensPerDay: number;
 }
 
+interface Provider {
+  id: string;
+  name: string;
+  type: string;
+  isActive: boolean;
+  defaultRateLimits: {
+    requestsPerMinute: number;
+    requestsPerDay: number;
+    tokensPerDay: number;
+  };
+}
+
 export default function AdminKeysPage() {
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingProviders, setLoadingProviders] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
@@ -49,8 +63,7 @@ export default function AdminKeysPage() {
 
   const [formData, setFormData] = useState({
     name: '',
-    provider: 'official',
-    targetApiKey: '',
+    provider: '',
     requestsPerMinute: 60,
     requestsPerDay: 1000,
     tokensPerDay: 1000000,
@@ -58,6 +71,7 @@ export default function AdminKeysPage() {
 
   useEffect(() => {
     fetchKeys();
+    fetchProviders();
   }, []);
 
   const fetchKeys = async () => {
@@ -73,6 +87,35 @@ export default function AdminKeysPage() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchProviders = async () => {
+    try {
+      const response = await fetch('/api/admin/providers');
+      const data = await response.json();
+      if (data.success && data.providers) {
+        const activeProviders = data.providers.filter((p: Provider) => p.isActive);
+        setProviders(activeProviders);
+
+        // Set default provider as the initial selection
+        const defaultProvider = activeProviders.find((p: Provider) => p.isDefault);
+        if (defaultProvider) {
+          setFormData((prev) => ({
+            ...prev,
+            provider: defaultProvider.id,
+            requestsPerMinute: defaultProvider.defaultRateLimits.requestsPerMinute,
+            requestsPerDay: defaultProvider.defaultRateLimits.requestsPerDay,
+            tokensPerDay: defaultProvider.defaultRateLimits.tokensPerDay,
+          }));
+        }
+      }
+    } catch {
+      toast.error('Failed to fetch providers', {
+        description: 'An unexpected error occurred',
+      });
+    } finally {
+      setLoadingProviders(false);
     }
   };
 
@@ -93,13 +136,13 @@ export default function AdminKeysPage() {
         setCreatedKey(data.apiKey.fullKey);
         setShowCreateForm(false);
         fetchKeys();
+        const defaultProvider = providers.find((p: Provider) => p.isDefault);
         setFormData({
           name: '',
-          provider: 'official',
-          targetApiKey: '',
-          requestsPerMinute: 60,
-          requestsPerDay: 1000,
-          tokensPerDay: 1000000,
+          provider: defaultProvider?.id || '',
+          requestsPerMinute: defaultProvider?.defaultRateLimits.requestsPerMinute || 60,
+          requestsPerDay: defaultProvider?.defaultRateLimits.requestsPerDay || 1000,
+          tokensPerDay: defaultProvider?.defaultRateLimits.tokensPerDay || 1000000,
         });
         toast.success('API key created successfully', {
           description: 'Your new API key is ready to use',
@@ -340,25 +383,57 @@ export default function AdminKeysPage() {
                   <Select
                     label="Provider"
                     value={formData.provider}
-                    onChange={(e) =>
-                      setFormData({ ...formData, provider: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const selectedProvider = providers.find(
+                        (p) => p.id === e.target.value
+                      );
+                      if (selectedProvider) {
+                        setFormData({
+                          ...formData,
+                          provider: e.target.value,
+                          requestsPerMinute: selectedProvider.defaultRateLimits.requestsPerMinute,
+                          requestsPerDay: selectedProvider.defaultRateLimits.requestsPerDay,
+                          tokensPerDay: selectedProvider.defaultRateLimits.tokensPerDay,
+                        });
+                      } else {
+                        setFormData({ ...formData, provider: e.target.value });
+                      }
+                    }}
+                    required
                   >
-                    <option value="official">Claude Official API</option>
-                    <option value="bedrock">AWS Bedrock</option>
+                    {loadingProviders ? (
+                      <option value="">Loading providers...</option>
+                    ) : providers.length === 0 ? (
+                      <option value="">No active providers available</option>
+                    ) : (
+                      <>
+                        <option value="">Select a provider</option>
+                        {providers.map((provider) => (
+                          <option key={provider.id} value={provider.id}>
+                            {provider.name} ({provider.type})
+                          </option>
+                        ))}
+                      </>
+                    )}
                   </Select>
                 </div>
 
-                <Input
-                  label="Target Claude API Key"
-                  type="password"
-                  value={formData.targetApiKey}
-                  onChange={(e) =>
-                    setFormData({ ...formData, targetApiKey: e.target.value })
-                  }
-                  placeholder="sk-ant-..."
-                  required
-                />
+                {providers.length > 0 && formData.provider && (
+                  <AlertCard variant="info">
+                    <p className="text-sm">
+                      This API key will use the Claude API key configured in the selected provider.
+                      The rate limits below can be customized for this specific key.
+                    </p>
+                  </AlertCard>
+                )}
+
+                {providers.length === 0 && !loadingProviders && (
+                  <AlertCard variant="warning">
+                    <p className="text-sm">
+                      No providers available. Please create a provider first in the Provider Settings page.
+                    </p>
+                  </AlertCard>
+                )}
 
                 <div className="space-y-4">
                   <h4 className="font-medium">Rate Limits</h4>
@@ -399,7 +474,12 @@ export default function AdminKeysPage() {
                   </div>
                 </div>
 
-                <Button type="submit" className="w-full" isLoading={submitting}>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  isLoading={submitting}
+                  disabled={providers.length === 0 || !formData.provider}
+                >
                   <Key className="h-4 w-4 mr-2" />
                   Create API Key
                 </Button>
