@@ -116,6 +116,7 @@ export async function GET() {
         requestsPerMinute: apiKeys.requestsPerMinute,
         requestsPerDay: apiKeys.requestsPerDay,
         tokensPerDay: apiKeys.tokensPerDay,
+        monthlySpendLimitUsd: apiKeys.monthlySpendLimitUsd,
         createdAt: apiKeys.createdAt,
         updatedAt: apiKeys.updatedAt,
       })
@@ -135,6 +136,7 @@ export async function GET() {
           tokensPerDay: key.tokensPerDay ? Number(key.tokensPerDay) : null,
           requestsPerMinute: key.requestsPerMinute,
           requestsPerDay: key.requestsPerDay,
+          monthlySpendLimitUsd: key.monthlySpendLimitUsd ? Number(key.monthlySpendLimitUsd) : null,
           revokedAt: key.revokedAt?.toISOString() || null,
           createdAt: key.createdAt.toISOString(),
           updatedAt: key.updatedAt.toISOString(),

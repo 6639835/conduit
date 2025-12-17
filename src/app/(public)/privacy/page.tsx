@@ -154,7 +154,7 @@ export default function PrivacyPage() {
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">
               Conduit acts as a gateway to the Anthropic Claude API. Your API requests are
-              forwarded to Anthropic for processing. Please review Anthropic's Privacy Policy
+              forwarded to Anthropic for processing. Please review Anthropic&apos;s Privacy Policy
               to understand how they handle your data.
             </p>
             <p className="text-muted-foreground">
@@ -195,8 +195,8 @@ export default function PrivacyPage() {
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">
               We may update our Privacy Policy from time to time. We will notify you of any
-              changes by posting the new Privacy Policy on this page and updating the "Last
-              updated" date at the top of this policy.
+              changes by posting the new Privacy Policy on this page and updating the &quot;Last
+              updated&quot; date at the top of this policy.
             </p>
             <p className="text-muted-foreground">
               You are advised to review this Privacy Policy periodically for any changes.

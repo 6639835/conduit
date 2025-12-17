@@ -18,8 +18,16 @@ export async function GET(request: NextRequest) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
+    // Build where conditions
+    const whereConditions = apiKeyId
+      ? and(
+          gte(usageLogs.timestamp, startDate),
+          eq(usageLogs.apiKeyId, apiKeyId)
+        )
+      : gte(usageLogs.timestamp, startDate);
+
     // Build query
-    let query = db
+    const logs = await db
       .select({
         id: usageLogs.id,
         timestamp: usageLogs.timestamp,
@@ -40,21 +48,9 @@ export async function GET(request: NextRequest) {
       })
       .from(usageLogs)
       .leftJoin(apiKeys, eq(usageLogs.apiKeyId, apiKeys.id))
-      .where(gte(usageLogs.timestamp, startDate))
+      .where(whereConditions)
       .orderBy(desc(usageLogs.timestamp))
       .limit(10000); // Limit to 10k records
-
-    // Filter by API key if specified
-    if (apiKeyId) {
-      query = query.where(
-        and(
-          gte(usageLogs.timestamp, startDate),
-          eq(usageLogs.apiKeyId, apiKeyId)
-        )
-      );
-    }
-
-    const logs = await query;
 
     if (format === 'json') {
       // JSON export

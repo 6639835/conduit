@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { providers } from '@/lib/db/schema';
 import { encryptApiKey } from '@/lib/utils/crypto';
-import { eq, and, ne } from 'drizzle-orm';
+import { eq, ne } from 'drizzle-orm';
 
 export interface UpdateProviderRequest {
   name?: string;

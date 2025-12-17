@@ -54,10 +54,10 @@ export default function DocumentationPage() {
             </p>
             <div className="bg-muted p-4 rounded-md font-mono text-sm">
               <div className="space-y-2">
-                <p className="text-muted-foreground">// Example using the Anthropic SDK</p>
+                <p className="text-muted-foreground">{'//'} Example using the Anthropic SDK</p>
                 <p>const client = new Anthropic(&#123;</p>
-                <p className="pl-4">apiKey: 'sk-cond_your-api-key',</p>
-                <p className="pl-4">baseURL: 'https://your-conduit-instance.com'</p>
+                <p className="pl-4">apiKey: &apos;sk-cond_your-api-key&apos;,</p>
+                <p className="pl-4">baseURL: &apos;https://your-conduit-instance.com&apos;</p>
                 <p>&#125;);</p>
               </div>
             </div>

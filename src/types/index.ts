@@ -51,6 +51,7 @@ export interface ListApiKeysResponse {
     requestsPerMinute: number | null;
     requestsPerDay: number | null;
     tokensPerDay: number | null;
+    monthlySpendLimitUsd: number | null;
     createdAt: string;
     updatedAt: string;
   }>;

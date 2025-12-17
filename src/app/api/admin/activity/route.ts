@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
           timestamp: log.timestamp.toISOString(),
           metadata: {
             keyPrefix: key.keyPrefix,
-            provider: key.provider,
+            provider: key.provider ?? undefined,
             model: log.model,
             status: isSuccess ? 'success' : 'error',
           },
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
           timestamp: key.revokedAt.toISOString(),
           metadata: {
             keyPrefix: key.keyPrefix,
-            provider: key.provider,
+            provider: key.provider ?? undefined,
           },
         });
       }
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
         timestamp: key.createdAt.toISOString(),
         metadata: {
           keyPrefix: key.keyPrefix,
-          provider: key.provider,
+          provider: key.provider ?? undefined,
         },
       });
     }

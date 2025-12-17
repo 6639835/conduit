@@ -51,7 +51,6 @@ export async function GET() {
     {
       status: overallStatus,
       timestamp: new Date().toISOString(),
-      uptime: process.uptime ? process.uptime() : undefined,
       responseTime: Date.now() - startTime,
       checks,
     },

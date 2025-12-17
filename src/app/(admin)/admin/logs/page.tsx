@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout';
 import {
   Button,
@@ -54,7 +54,7 @@ export default function LogsPage() {
   const [logType, setLogType] = useState<'all' | 'errors'>('errors');
   const [timeRange, setTimeRange] = useState(7);
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch(
@@ -81,11 +81,11 @@ export default function LogsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [logType, timeRange]);
 
   useEffect(() => {
     fetchLogs();
-  }, [logType, timeRange]);
+  }, [fetchLogs]);
 
   const getStatusIcon = (statusCode: number) => {
     if (statusCode >= 200 && statusCode < 300) {

@@ -23,7 +23,7 @@ export interface ProxyOptions {
  * Replaces Authorization header with provider's API key
  */
 export async function proxyToClaudeOfficial(options: ProxyOptions): Promise<Response> {
-  const { apiKey, provider, path, method, headers, body } = options;
+  const { provider, path, method, headers, body } = options;
 
   try {
     // Decrypt provider API key

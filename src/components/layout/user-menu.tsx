@@ -20,7 +20,7 @@ export function UserMenu() {
     try {
       await signOut({ callbackUrl: "/login" })
       toast.success("Logged out successfully")
-    } catch (error) {
+    } catch {
       toast.error("Failed to log out")
     } finally {
       setIsLoading(false)

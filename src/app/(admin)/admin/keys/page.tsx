@@ -47,6 +47,7 @@ interface Provider {
   name: string;
   type: string;
   isActive: boolean;
+  isDefault?: boolean;
   defaultRateLimits: {
     requestsPerMinute: number;
     requestsPerDay: number;

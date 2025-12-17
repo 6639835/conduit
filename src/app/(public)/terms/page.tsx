@@ -78,7 +78,7 @@ export default function TermsPage() {
               <li>Use the service to transmit malicious code or harmful content</li>
               <li>Attempt to gain unauthorized access to the service or related systems</li>
               <li>Use the service to harass, abuse, or harm others</li>
-              <li>Violate Anthropic's Terms of Service or Usage Policy</li>
+              <li>Violate Anthropic&apos;s Terms of Service or Usage Policy</li>
             </ul>
           </CardContent>
         </Card>
@@ -158,7 +158,7 @@ export default function TermsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">
-              THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY
+              THE SERVICE IS PROVIDED &quot;AS IS&quot; AND &quot;AS AVAILABLE&quot; WITHOUT WARRANTIES OF ANY
               KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO:
             </p>
             <ul className="list-disc list-inside space-y-2 text-muted-foreground">
