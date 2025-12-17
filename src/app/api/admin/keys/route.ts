@@ -4,6 +4,8 @@ import { apiKeys, providers } from '@/lib/db/schema';
 import { generateApiKey } from '@/lib/auth/api-key';
 import { desc, eq } from 'drizzle-orm';
 import type { CreateApiKeyRequest, CreateApiKeyResponse, ListApiKeysResponse } from '@/types';
+import { SystemNotifications } from '@/lib/notifications';
+import { auth } from '@/lib/auth';
 
 /**
  * POST /api/admin/keys - Create a new API key
@@ -70,6 +72,16 @@ export async function POST(request: NextRequest) {
         isActive: true,
       })
       .returning();
+
+    // Send notification to the admin who created the key
+    const session = await auth();
+    if (session?.user?.id) {
+      await SystemNotifications.apiKeyCreated(
+        session.user.id,
+        body.name || null,
+        keyPrefix
+      ).catch(err => console.error('Failed to send notification:', err));
+    }
 
     return NextResponse.json(
       {

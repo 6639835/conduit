@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
-import { notifications } from '@/lib/db/schema';
+import { notifications, admins } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 export type NotificationType = 'info' | 'warning' | 'error' | 'success';
 
@@ -14,15 +15,47 @@ export interface CreateNotificationParams {
 }
 
 /**
- * Create a notification for an admin user
+ * Create a notification for an admin user or broadcast to all admins
  */
 export async function createNotification(params: CreateNotificationParams) {
   const { adminId, type, title, message, actionUrl, actionLabel, metadata } = params;
 
+  // If adminId is null, create notification for all active admins
+  if (adminId === null || adminId === undefined) {
+    const allAdmins = await db
+      .select({ id: admins.id })
+      .from(admins)
+      .where(eq(admins.isActive, true));
+
+    if (allAdmins.length === 0) {
+      console.warn('No active admins found for broadcast notification');
+      return null;
+    }
+
+    // Create notification for each admin
+    const createdNotifications = await db
+      .insert(notifications)
+      .values(
+        allAdmins.map(admin => ({
+          adminId: admin.id,
+          type,
+          title,
+          message,
+          actionUrl,
+          actionLabel,
+          metadata,
+        }))
+      )
+      .returning();
+
+    return createdNotifications[0]; // Return first for consistency
+  }
+
+  // Create notification for specific admin
   const [notification] = await db
     .insert(notifications)
     .values({
-      adminId: adminId || null,
+      adminId,
       type,
       title,
       message,

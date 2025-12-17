@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { providers } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { decryptApiKey } from '@/lib/utils/crypto';
+import { SystemNotifications } from '@/lib/notifications';
+import { auth } from '@/lib/auth';
 
 /**
  * POST /api/admin/providers/[id]/test - Test provider connection
@@ -61,6 +63,9 @@ export async function POST(
       // Check if response is successful (200-299) or if it's a specific expected error
       const isHealthy = response.ok || response.status === 400; // 400 might be due to message format, but endpoint is reachable
 
+      // Track previous status to detect status changes
+      const previousStatus = provider.status;
+
       // Update provider status
       await db
         .update(providers)
@@ -70,6 +75,26 @@ export async function POST(
         })
         .where(eq(providers.id, id));
 
+      // Send notifications on status changes
+      const session = await auth();
+      if (previousStatus !== (isHealthy ? 'healthy' : 'unhealthy')) {
+        if (!isHealthy) {
+          // Provider became unhealthy - notify all admins (null adminId)
+          await SystemNotifications.providerUnhealthy(
+            null,
+            provider.name,
+            provider.id
+          ).catch(err => console.error('Failed to send notification:', err));
+        } else if (previousStatus === 'unhealthy') {
+          // Provider was restored - notify all admins
+          await SystemNotifications.providerRestored(
+            null,
+            provider.name,
+            provider.id
+          ).catch(err => console.error('Failed to send notification:', err));
+        }
+      }
+
       return NextResponse.json({
         success: true,
         status: isHealthy ? 'healthy' : 'unhealthy',
@@ -78,6 +103,8 @@ export async function POST(
       });
     } catch (error) {
       // Connection failed
+      const previousStatus = provider.status;
+
       await db
         .update(providers)
         .set({
@@ -85,6 +112,15 @@ export async function POST(
           lastTestedAt: new Date(),
         })
         .where(eq(providers.id, id));
+
+      // Send notification if provider status changed
+      if (previousStatus !== 'unhealthy') {
+        await SystemNotifications.providerUnhealthy(
+          null,
+          provider.name,
+          provider.id
+        ).catch(err => console.error('Failed to send notification:', err));
+      }
 
       return NextResponse.json({
         success: true,

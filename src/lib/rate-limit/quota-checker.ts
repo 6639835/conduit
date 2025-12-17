@@ -5,12 +5,90 @@
 
 import { kv } from '@vercel/kv';
 import { db } from '@/lib/db';
-import { usageAggregates } from '@/lib/db/schema';
+import { usageAggregates, apiKeys } from '@/lib/db/schema';
 import { eq, and, gte } from 'drizzle-orm';
 import type { ApiKey } from '@/lib/db/schema';
 import type { RateLimitResult } from '@/types';
+import { SystemNotifications } from '@/lib/notifications';
 
 const QUOTA_CACHE_TTL = 60; // Cache quota status for 60 seconds
+
+/**
+ * Send quota warning notification if usage crosses threshold
+ * Sends at 80% and 90% thresholds
+ */
+async function sendQuotaWarning(
+  apiKey: ApiKey,
+  usagePercent: number
+): Promise<void> {
+  // Only send notifications at specific thresholds
+  const threshold = usagePercent >= 90 ? 90 : usagePercent >= 80 ? 80 : null;
+  if (!threshold) return;
+
+  // Check if we've already sent this threshold notification today
+  const today = new Date().toISOString().slice(0, 10);
+  const notificationKey = `quota-notification:${apiKey.id}:${today}:${threshold}`;
+
+  try {
+    const alreadySent = await kv.get(notificationKey);
+    if (alreadySent) return;
+
+    // Send notification to API key owner
+    if (apiKey.createdBy) {
+      await SystemNotifications.apiKeyQuotaWarning(
+        apiKey.createdBy,
+        apiKey.keyPrefix,
+        threshold
+      );
+
+      // Mark as sent to avoid duplicate notifications
+      await kv.set(notificationKey, true, { ex: 86400 }); // Expire in 24 hours
+    }
+  } catch (error) {
+    console.error('Failed to send quota warning notification:', error);
+  }
+}
+
+/**
+ * Send monthly spend limit notification
+ */
+async function sendSpendLimitWarning(
+  apiKey: ApiKey,
+  spendPercent: number
+): Promise<void> {
+  // Only send at 90% threshold and when limit is reached
+  if (spendPercent < 90) return;
+
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const notificationKey = `spend-notification:${apiKey.id}:${currentMonth}:${spendPercent >= 100 ? 'reached' : '90'}`;
+
+  try {
+    const alreadySent = await kv.get(notificationKey);
+    if (alreadySent) return;
+
+    if (apiKey.createdBy && apiKey.monthlySpendLimitUsd) {
+      if (spendPercent >= 100) {
+        // Limit reached
+        await SystemNotifications.spendLimitReached(
+          apiKey.createdBy,
+          apiKey.keyPrefix,
+          apiKey.monthlySpendLimitUsd
+        );
+      } else {
+        // 90% warning
+        await SystemNotifications.apiKeyQuotaWarning(
+          apiKey.createdBy,
+          apiKey.keyPrefix,
+          90
+        );
+      }
+
+      await kv.set(notificationKey, true, { ex: 2592000 }); // Expire in 30 days
+    }
+  } catch (error) {
+    console.error('Failed to send spend limit warning:', error);
+  }
+}
 
 /**
  * Check if API key has exceeded token quota or monthly spend limit
@@ -53,6 +131,10 @@ export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
         // Cache the result
         await kv.set(monthCacheKey, { costUsd: monthlySpend }, { ex: QUOTA_CACHE_TTL });
       }
+
+      // Calculate spend percentage and send warnings
+      const spendPercent = (monthlySpend / apiKey.monthlySpendLimitUsd) * 100;
+      await sendSpendLimitWarning(apiKey, spendPercent);
 
       // Check if monthly spend limit exceeded
       if (monthlySpend >= apiKey.monthlySpendLimitUsd) {
@@ -109,6 +191,10 @@ export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
 
     // Check against daily token limit
     const dailyLimit = apiKey.tokensPerDay ? Number(apiKey.tokensPerDay) : 1000000;
+
+    // Calculate usage percentage and send warnings
+    const usagePercent = (tokensUsed / dailyLimit) * 100;
+    await sendQuotaWarning(apiKey, usagePercent);
 
     if (tokensUsed >= dailyLimit) {
       const tomorrow = new Date(today);
