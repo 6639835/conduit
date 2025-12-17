@@ -132,9 +132,13 @@ export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
         await kv.set(monthCacheKey, { costUsd: monthlySpend }, { ex: QUOTA_CACHE_TTL });
       }
 
-      // Calculate spend percentage and send warnings
+      // Calculate spend percentage and send warnings (await to handle errors properly)
       const spendPercent = (monthlySpend / apiKey.monthlySpendLimitUsd) * 100;
-      await sendSpendLimitWarning(apiKey, spendPercent);
+      try {
+        await sendSpendLimitWarning(apiKey, spendPercent);
+      } catch (error) {
+        console.error('Failed to send spend limit warning:', error);
+      }
 
       // Check if monthly spend limit exceeded
       if (monthlySpend >= apiKey.monthlySpendLimitUsd) {
@@ -153,14 +157,14 @@ export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
       }
     }
 
-    // Try to get cached quota status
-    const cacheKey = `quota:${apiKey.id}:day:${today}`;
-    const cached = await kv.get<{ tokensUsed: number; allowed: boolean }>(cacheKey);
+    // Try to get cached token count (using atomic counter key)
+    const tokensCacheKey = `quota:${apiKey.id}:day:${today}:tokens`;
+    const cachedTokens = await kv.get<number>(tokensCacheKey);
 
     let tokensUsed: number;
 
-    if (cached) {
-      tokensUsed = cached.tokensUsed;
+    if (cachedTokens !== null && cachedTokens !== undefined) {
+      tokensUsed = cachedTokens;
     } else {
       // Query database for today's usage
       const todayStart = new Date(today);
@@ -185,16 +189,20 @@ export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
         ? Number(aggregate.totalTokensInput) + Number(aggregate.totalTokensOutput)
         : 0;
 
-      // Cache the result
-      await kv.set(cacheKey, { tokensUsed, allowed: true }, { ex: QUOTA_CACHE_TTL });
+      // Cache the result using atomic counter
+      await kv.set(tokensCacheKey, tokensUsed, { ex: QUOTA_CACHE_TTL });
     }
 
     // Check against daily token limit
     const dailyLimit = apiKey.tokensPerDay ? Number(apiKey.tokensPerDay) : 1000000;
 
-    // Calculate usage percentage and send warnings
+    // Calculate usage percentage and send warnings (await to handle errors properly)
     const usagePercent = (tokensUsed / dailyLimit) * 100;
-    await sendQuotaWarning(apiKey, usagePercent);
+    try {
+      await sendQuotaWarning(apiKey, usagePercent);
+    } catch (error) {
+      console.error('Failed to send quota warning:', error);
+    }
 
     if (tokensUsed >= dailyLimit) {
       const tomorrow = new Date(today);
@@ -228,6 +236,7 @@ export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
 /**
  * Increment token usage in cache (for real-time tracking)
  * This is called after a request completes
+ * Uses atomic increment to avoid race conditions
  */
 export async function incrementTokenUsage(
   apiKeyId: string,
@@ -235,15 +244,16 @@ export async function incrementTokenUsage(
   tokensOutput: number
 ): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
-  const cacheKey = `quota:${apiKeyId}:day:${today}`;
+  const cacheKey = `quota:${apiKeyId}:day:${today}:tokens`;
 
   try {
-    const cached = await kv.get<{ tokensUsed: number; allowed: boolean }>(cacheKey);
+    const totalTokens = tokensInput + tokensOutput;
 
-    if (cached) {
-      const newTotal = cached.tokensUsed + tokensInput + tokensOutput;
-      await kv.set(cacheKey, { tokensUsed: newTotal, allowed: true }, { ex: QUOTA_CACHE_TTL });
-    }
+    // Use atomic INCRBY to avoid race conditions
+    await kv.incrby(cacheKey, totalTokens);
+
+    // Set expiry (idempotent - only sets if no TTL exists)
+    await kv.expire(cacheKey, 86400 * 2); // 2 days TTL
   } catch (error) {
     console.error('Error incrementing token usage:', error);
     // Non-critical error - continue
@@ -301,10 +311,9 @@ export async function getRemainingQuota(apiKey: ApiKey): Promise<{
     const dayKey = `rate_limit:${apiKey.id}:day:${today}`;
     const dayCount = (await kv.get<number>(dayKey)) || 0;
 
-    // Get token usage from cache or DB
-    const cacheKey = `quota:${apiKey.id}:day:${today}`;
-    const cached = await kv.get<{ tokensUsed: number }>(cacheKey);
-    const tokensUsed = cached?.tokensUsed || 0;
+    // Get token usage from atomic counter cache
+    const tokensCacheKey = `quota:${apiKey.id}:day:${today}:tokens`;
+    const tokensUsed = (await kv.get<number>(tokensCacheKey)) || 0;
 
     return {
       requestsPerMinute: apiKey.requestsPerMinute

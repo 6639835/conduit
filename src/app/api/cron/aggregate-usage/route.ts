@@ -45,18 +45,30 @@ export async function POST(request: NextRequest) {
       .from(apiKeys)
       .where(eq(apiKeys.isActive, true));
 
-    for (const key of activeKeys) {
-      // Aggregate hourly (last 2 hours to catch any missed data)
-      const hourlyResult = await aggregatePeriod(key.id, 'hour', now, 2);
-      results.hourly += hourlyResult;
+    // Process keys in parallel batches of 10 to avoid overwhelming the database
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < activeKeys.length; i += BATCH_SIZE) {
+      const batch = activeKeys.slice(i, i + BATCH_SIZE);
 
-      // Aggregate daily (current day)
-      const dailyResult = await aggregatePeriod(key.id, 'day', now, 1);
-      results.daily += dailyResult;
+      await Promise.all(
+        batch.map(async (key) => {
+          try {
+            // Aggregate hourly (last 2 hours to catch any missed data)
+            const hourlyResult = await aggregatePeriod(key.id, 'hour', now, 2);
+            results.hourly += hourlyResult;
 
-      // Aggregate monthly (current month)
-      const monthlyResult = await aggregatePeriod(key.id, 'month', now, 1);
-      results.monthly += monthlyResult;
+            // Aggregate daily (current day)
+            const dailyResult = await aggregatePeriod(key.id, 'day', now, 1);
+            results.daily += dailyResult;
+
+            // Aggregate monthly (current month)
+            const monthlyResult = await aggregatePeriod(key.id, 'month', now, 1);
+            results.monthly += monthlyResult;
+          } catch (error) {
+            console.error(`Error aggregating usage for key ${key.id}:`, error);
+          }
+        })
+      );
     }
 
     return NextResponse.json({

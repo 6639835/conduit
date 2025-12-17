@@ -101,8 +101,13 @@ export function getAllModelPricing(): Record<string, ModelPricing> {
   return { ...MODEL_PRICING };
 }
 
+// Cost estimation variance constants
+const COST_ESTIMATE_MIN_MULTIPLIER = 0.8; // -20% variance
+const COST_ESTIMATE_MAX_MULTIPLIER = 1.2; // +20% variance
+
 /**
  * Estimate cost for a given token count (before making request)
+ * Uses ±20% variance on output tokens to provide a cost range
  */
 export function estimateCost(
   model: string,
@@ -114,8 +119,8 @@ export function estimateCost(
   formattedMin: string;
   formattedMax: string;
 } {
-  const minCost = calculateCost(model, estimatedInputTokens, estimatedOutputTokens * 0.8);
-  const maxCost = calculateCost(model, estimatedInputTokens, estimatedOutputTokens * 1.2);
+  const minCost = calculateCost(model, estimatedInputTokens, estimatedOutputTokens * COST_ESTIMATE_MIN_MULTIPLIER);
+  const maxCost = calculateCost(model, estimatedInputTokens, estimatedOutputTokens * COST_ESTIMATE_MAX_MULTIPLIER);
 
   return {
     minCostCents: minCost,

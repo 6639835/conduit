@@ -109,10 +109,22 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     // Parse request body if present
     let body = null;
     if (request.method !== 'GET' && request.method !== 'HEAD') {
-      try {
-        body = await request.json();
-      } catch {
-        // Body might be empty or not JSON
+      const contentType = request.headers.get('content-type');
+      if (contentType?.includes('application/json')) {
+        try {
+          body = await request.json();
+        } catch (error) {
+          console.error('Failed to parse request body as JSON:', error);
+          return NextResponse.json(
+            {
+              error: {
+                type: 'invalid_request_error',
+                message: 'Invalid JSON in request body',
+              },
+            },
+            { status: 400 }
+          );
+        }
       }
     }
 
@@ -134,9 +146,9 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       // Create streaming proxy with usage tracking
       const streamResponse = await createStreamingResponse(
         upstreamResponse,
-        (usageData) => {
-          // Increment token usage for quota tracking
-          incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
+        async (usageData) => {
+          // Increment token usage for quota tracking (await to ensure it completes)
+          await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
 
           // Log usage to database
           logUsageAsync({
@@ -168,8 +180,8 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     const { body: responseBody, usageData } = await parseNonStreamingResponse(upstreamResponse);
 
     if (usageData) {
-      // Increment token usage for quota tracking
-      incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
+      // Increment token usage for quota tracking (await to ensure it completes)
+      await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
 
       // Log usage to database
       logUsageAsync({

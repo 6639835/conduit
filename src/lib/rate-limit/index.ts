@@ -20,23 +20,17 @@ export async function checkRateLimit(apiKey: ApiKey): Promise<RateLimitResult> {
   const dayKey = `rate_limit:${apiKey.id}:day:${currentDay}`;
 
   try {
-    // Get current counters (use pipeline for atomicity)
+    // Get current counters and set TTL atomically (use pipeline for atomicity)
     const results = await kv
       .pipeline()
       .incr(minuteKey)
+      .expire(minuteKey, 120) // 2 minutes TTL (safety margin) - set every time
       .incr(dayKey)
+      .expire(dayKey, 86400 * 2) // 2 days TTL (safety margin) - set every time
       .exec();
 
     const minuteCount = results[0] as number;
-    const dayCount = results[1] as number;
-
-    // Set TTL on first increment (idempotent - only sets if no TTL exists)
-    if (minuteCount === 1) {
-      await kv.expire(minuteKey, 120); // 2 minutes TTL (safety margin)
-    }
-    if (dayCount === 1) {
-      await kv.expire(dayKey, 86400 * 2); // 2 days TTL (safety margin)
-    }
+    const dayCount = results[2] as number;
 
     // Check minute limit
     const minuteLimit = apiKey.requestsPerMinute || 60;

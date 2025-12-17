@@ -44,11 +44,51 @@ export async function POST(request: NextRequest) {
       .from(apiKeys)
       .where(eq(apiKeys.isActive, true));
 
-    for (const key of activeKeys) {
-      results.checked++;
+    // Process keys in parallel batches of 10 to avoid overwhelming the database
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < activeKeys.length; i += BATCH_SIZE) {
+      const batch = activeKeys.slice(i, i + BATCH_SIZE);
 
-      // Check daily token quota
-      if (key.tokensPerDay) {
+      await Promise.all(
+        batch.map(async (key) => {
+          try {
+            results.checked++;
+
+            await processKeyQuotas(key, today, currentMonth, results);
+          } catch (error) {
+            console.error(`Error monitoring quotas for key ${key.id}:`, error);
+          }
+        })
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Quota monitoring completed',
+      results,
+      processedAt: now.toISOString(),
+    });
+  } catch (error) {
+    console.error('Error monitoring quotas:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to monitor quotas' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Process quota checks for a single API key
+ */
+async function processKeyQuotas(
+  key: typeof apiKeys.$inferSelect,
+  today: string,
+  currentMonth: string,
+  results: { checked: number; quotaWarnings: number; spendWarnings: number }
+): Promise<void> {
+
+  // Check daily token quota
+  if (key.tokensPerDay) {
         const dailyLimit = Number(key.tokensPerDay);
         const todayStart = new Date(today);
         todayStart.setHours(0, 0, 0, 0);
@@ -79,20 +119,25 @@ export async function POST(request: NextRequest) {
             const alreadySent = await kv.get(notificationKey);
 
             if (!alreadySent) {
-              await SystemNotifications.apiKeyQuotaWarning(
-                key.createdBy,
-                key.keyPrefix,
-                threshold
-              );
-              await kv.set(notificationKey, true, { ex: 86400 }); // Expire in 24 hours
-              results.quotaWarnings++;
-            }
+              try {
+                await SystemNotifications.apiKeyQuotaWarning(
+                  key.createdBy,
+                  key.keyPrefix,
+                  threshold
+                );
+                await kv.set(notificationKey, true, { ex: 86400 }); // Expire in 24 hours
+                results.quotaWarnings++;
+              } catch (error) {
+                console.error('Failed to send quota warning notification:', error);
+              }
           }
         }
       }
+    }
+  }
 
-      // Check monthly spend limit
-      if (key.monthlySpendLimitUsd && key.monthlySpendLimitUsd > 0) {
+  // Check monthly spend limit
+  if (key.monthlySpendLimitUsd && key.monthlySpendLimitUsd > 0) {
         const monthStart = new Date(currentMonth + '-01');
         monthStart.setHours(0, 0, 0, 0);
 
@@ -120,39 +165,29 @@ export async function POST(request: NextRequest) {
             const alreadySent = await kv.get(notificationKey);
 
             if (!alreadySent) {
-              if (spendPercent >= 100) {
-                await SystemNotifications.spendLimitReached(
-                  key.createdBy,
-                  key.keyPrefix,
-                  key.monthlySpendLimitUsd
-                );
-              } else {
-                await SystemNotifications.apiKeyQuotaWarning(
-                  key.createdBy,
-                  key.keyPrefix,
-                  90
-                );
+              try {
+                if (spendPercent >= 100) {
+                  await SystemNotifications.spendLimitReached(
+                    key.createdBy,
+                    key.keyPrefix,
+                    key.monthlySpendLimitUsd
+                  );
+                } else {
+                  await SystemNotifications.apiKeyQuotaWarning(
+                    key.createdBy,
+                    key.keyPrefix,
+                    90
+                  );
+                }
+                await kv.set(notificationKey, true, { ex: 2592000 }); // Expire in 30 days
+                results.spendWarnings++;
+              } catch (error) {
+                console.error('Failed to send spend warning notification:', error);
               }
-              await kv.set(notificationKey, true, { ex: 2592000 }); // Expire in 30 days
-              results.spendWarnings++;
-            }
           }
         }
       }
     }
-
-    return NextResponse.json({
-      success: true,
-      message: 'Quota monitoring completed',
-      results,
-      processedAt: now.toISOString(),
-    });
-  } catch (error) {
-    console.error('Error monitoring quotas:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to monitor quotas' },
-      { status: 500 }
-    );
   }
 }
 

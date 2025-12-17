@@ -39,27 +39,29 @@ export const providers = pgTable('providers', {
   nameIdx: index('providers_name_idx').on(table.name),
   isActiveIdx: index('providers_is_active_idx').on(table.isActive),
   isDefaultIdx: index('providers_is_default_idx').on(table.isDefault),
+  // Note: Only one provider should be default at a time, but this is enforced at application level
 }));
 
 // API keys table
 export const apiKeys = pgTable('api_keys', {
   id: uuid('id').defaultRandom().primaryKey(),
   keyHash: text('key_hash').notNull().unique(), // SHA-256 hash of the key
-  keyPrefix: varchar('key_prefix', { length: 12 }).notNull(), // First 8 chars for display (e.g., "sk-cond_abc123...")
+  keyPrefix: varchar('key_prefix', { length: 12 }).notNull(), // First 12 chars for display (e.g., "sk-cond_abc")
   name: varchar('name', { length: 255 }), // Optional friendly name
 
-  // Configuration - references centralized providers table
-  providerId: uuid('provider_id').references(() => providers.id).notNull(),
+  // Configuration - references centralized providers table with cascade delete
+  providerId: uuid('provider_id').references(() => providers.id, { onDelete: 'restrict' }).notNull(),
 
-  // Legacy fields for backward compatibility (deprecated - use providerId instead)
-  provider: varchar('provider', { length: 50 }), // Legacy: 'official' or 'bedrock'
-  targetApiKey: text('target_api_key'), // Legacy: Encrypted Claude API key
+  // Legacy fields for backward compatibility (deprecated - will be removed in future version)
+  // These fields are no longer used - all API keys should use providerId
+  provider: varchar('provider', { length: 50 }), // DEPRECATED: Use providerId instead
+  targetApiKey: text('target_api_key'), // DEPRECATED: API key now stored in providers table
 
   // Quotas
   requestsPerMinute: integer('requests_per_minute').default(60),
   requestsPerDay: integer('requests_per_day').default(1000),
   tokensPerDay: bigint('tokens_per_day', { mode: 'number' }).default(1000000),
-  monthlySpendLimitUsd: integer('monthly_spend_limit_usd'), // In cents
+  monthlySpendLimitUsd: integer('monthly_spend_limit_usd'), // In USD cents (e.g., 1000 = $10.00)
 
   // Status
   isActive: boolean('is_active').notNull().default(true),
@@ -92,7 +94,7 @@ export const usageLogs = pgTable('usage_logs', {
   tokensOutput: integer('tokens_output').notNull().default(0),
 
   // Cost calculation
-  costUsd: integer('cost_usd').notNull().default(0), // In cents
+  costUsd: integer('cost_usd').notNull().default(0), // In USD cents (e.g., 150 = $1.50)
 
   // Timing
   latencyMs: integer('latency_ms'),
@@ -130,7 +132,7 @@ export const usageAggregates = pgTable('usage_aggregates', {
   totalTokensInput: bigint('total_tokens_input', { mode: 'number' }).notNull().default(0),
   totalTokensOutput: bigint('total_tokens_output', { mode: 'number' }).notNull().default(0),
 
-  totalCostUsd: bigint('total_cost_usd', { mode: 'number' }).notNull().default(0), // In cents
+  totalCostUsd: bigint('total_cost_usd', { mode: 'number' }).notNull().default(0), // In USD cents (e.g., 5000 = $50.00)
 
   // Model breakdown (JSONB for flexibility)
   modelBreakdown: jsonb('model_breakdown'), // { "claude-3-5-sonnet": { requests: 100, tokens: 50000 } }

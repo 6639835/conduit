@@ -28,8 +28,17 @@ export interface LogUsageParams {
  */
 export async function logUsage(params: LogUsageParams): Promise<void> {
   try {
+    // Validate token counts (must be non-negative integers)
+    const tokensInput = Math.max(0, Math.floor(params.tokensInput || 0));
+    const tokensOutput = Math.max(0, Math.floor(params.tokensOutput || 0));
+
+    if (isNaN(tokensInput) || isNaN(tokensOutput)) {
+      console.error('Invalid token counts:', { tokensInput: params.tokensInput, tokensOutput: params.tokensOutput });
+      return;
+    }
+
     // Calculate cost
-    const costUsd = calculateCost(params.model, params.tokensInput, params.tokensOutput);
+    const costUsd = calculateCost(params.model, tokensInput, tokensOutput);
 
     // Insert into database
     await db.insert(usageLogs).values({
@@ -37,8 +46,8 @@ export async function logUsage(params: LogUsageParams): Promise<void> {
       method: params.method,
       path: params.path,
       model: params.model,
-      tokensInput: params.tokensInput,
-      tokensOutput: params.tokensOutput,
+      tokensInput,
+      tokensOutput,
       costUsd,
       latencyMs: params.latencyMs,
       statusCode: params.statusCode,
@@ -57,10 +66,12 @@ export async function logUsage(params: LogUsageParams): Promise<void> {
 /**
  * Log usage asynchronously (fire-and-forget)
  * Use this in API routes to avoid blocking responses
+ * Note: In edge runtime, this may not complete if the function terminates early.
+ * Consider using context.waitUntil() if available in your edge runtime.
  */
-export function logUsageAsync(params: LogUsageParams): void {
-  // Fire and forget
-  logUsage(params).catch((error) => {
+export function logUsageAsync(params: LogUsageParams): Promise<void> {
+  // Return the promise so callers can optionally await or use waitUntil()
+  return logUsage(params).catch((error) => {
     console.error('Async logging error:', error);
   });
 }
@@ -73,9 +84,13 @@ export function extractRequestMetadata(headers: Headers): {
   ipAddress?: string;
   country?: string;
 } {
+  // Extract and trim IP address (x-forwarded-for can have spaces after commas)
+  const forwardedFor = headers.get('x-forwarded-for');
+  const ipAddress = forwardedFor?.split(',')[0]?.trim() || headers.get('x-real-ip')?.trim() || undefined;
+
   return {
     userAgent: headers.get('user-agent') || undefined,
-    ipAddress: headers.get('x-forwarded-for')?.split(',')[0] || headers.get('x-real-ip') || undefined,
+    ipAddress,
     country: headers.get('cf-ipcountry') || undefined, // Cloudflare country header
   };
 }

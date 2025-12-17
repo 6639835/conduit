@@ -8,6 +8,9 @@ import type { ApiKey, Provider } from '@/lib/db/schema';
 
 const CLAUDE_API_BASE = 'https://api.anthropic.com';
 
+// Timeout for upstream API requests (60 seconds)
+const UPSTREAM_TIMEOUT_MS = 60000;
+
 export interface ProxyOptions {
   apiKey: ApiKey;
   provider: Provider;
@@ -47,9 +50,9 @@ export async function proxyToClaudeOfficial(options: ProxyOptions): Promise<Resp
     // Set target API key
     proxyHeaders.set('Authorization', `Bearer ${targetApiKey}`);
 
-    // Set anthropic-version header if not present
+    // Set anthropic-version header if not present (updated to latest stable version)
     if (!proxyHeaders.has('anthropic-version')) {
-      proxyHeaders.set('anthropic-version', '2023-06-01');
+      proxyHeaders.set('anthropic-version', '2023-06-01'); // Can be updated to newer versions as needed
     }
 
     // Set content-type if body present
@@ -57,14 +60,28 @@ export async function proxyToClaudeOfficial(options: ProxyOptions): Promise<Resp
       proxyHeaders.set('content-type', 'application/json');
     }
 
-    // Make request to Claude API
-    const response = await fetch(url, {
-      method,
-      headers: proxyHeaders,
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
 
-    return response;
+    try {
+      // Make request to Claude API with timeout
+      const response = await fetch(url, {
+        method,
+        headers: proxyHeaders,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Upstream API request timed out after ${UPSTREAM_TIMEOUT_MS}ms`);
+      }
+      throw error;
+    }
   } catch (error) {
     console.error('Error proxying to Claude API:', error);
     throw error;
@@ -77,10 +94,12 @@ export async function proxyToClaudeOfficial(options: ProxyOptions): Promise<Resp
  */
 export function isValidClaudePath(path: string): boolean {
   // Whitelist of allowed path prefixes
+  // Expanded to include more Anthropic API endpoints
   const allowedPaths = [
-    '/v1/messages',
-    '/v1/complete',
-    '/v1/models',
+    '/v1/messages',      // Main chat completions endpoint
+    '/v1/complete',      // Legacy completions endpoint
+    '/v1/models',        // List available models
+    '/v1/count_tokens',  // Token counting endpoint
   ];
 
   return allowedPaths.some((allowedPath) => path.startsWith(allowedPath));

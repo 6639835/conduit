@@ -10,6 +10,11 @@ if (!process.env.API_KEY_ENCRYPTION_KEY) {
 // Derive encryption key from hex string
 const ENCRYPTION_KEY_HEX = process.env.API_KEY_ENCRYPTION_KEY;
 
+// Validate encryption key format (must be 64 hex characters for 256-bit key)
+if (!/^[0-9a-fA-F]{64}$/.test(ENCRYPTION_KEY_HEX)) {
+  throw new Error('API_KEY_ENCRYPTION_KEY must be exactly 64 hexadecimal characters (256 bits)');
+}
+
 /**
  * Get the encryption key as CryptoKey
  */

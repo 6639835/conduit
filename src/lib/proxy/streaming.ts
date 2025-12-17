@@ -15,7 +15,7 @@ export interface StreamUsageData {
  */
 export async function createStreamingResponse(
   upstreamResponse: Response,
-  onComplete?: (usageData: StreamUsageData) => void
+  onComplete?: (usageData: StreamUsageData) => void | Promise<void>
 ): Promise<Response> {
   const reader = upstreamResponse.body?.getReader();
   if (!reader) {
@@ -29,6 +29,7 @@ export async function createStreamingResponse(
   };
 
   const decoder = new TextDecoder();
+  let buffer = ''; // Buffer for incomplete SSE events
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -37,19 +38,33 @@ export async function createStreamingResponse(
           const { done, value } = await reader.read();
 
           if (done) {
+            // Process any remaining buffered data
+            if (buffer.length > 0) {
+              parseSSEChunk(buffer, usageData);
+            }
+
             // Stream completed - call onComplete with usage data
             if (onComplete && usageData.model) {
-              onComplete(usageData as StreamUsageData);
+              await onComplete(usageData as StreamUsageData);
             }
             controller.close();
             break;
           }
 
-          // Decode chunk
+          // Decode chunk and add to buffer
           const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
 
-          // Parse SSE events to extract usage data
-          parseSSEChunk(chunk, usageData);
+          // Process complete events from buffer
+          const lines = buffer.split('\n');
+          // Keep the last potentially incomplete line in buffer
+          buffer = lines.pop() || '';
+
+          // Parse complete lines
+          const completeChunk = lines.join('\n');
+          if (completeChunk.length > 0) {
+            parseSSEChunk(completeChunk, usageData);
+          }
 
           // Forward chunk to client
           controller.enqueue(value);
@@ -89,19 +104,23 @@ function parseSSEChunk(chunk: string, usageData: Partial<StreamUsageData>) {
 
         // Extract usage from message_start event
         if (data.type === 'message_start' && data.message?.usage) {
-          usageData.tokensInput = data.message.usage.input_tokens || 0;
-          usageData.tokensOutput = data.message.usage.output_tokens || 0;
+          usageData.tokensInput = Math.max(usageData.tokensInput || 0, data.message.usage.input_tokens || 0);
+          usageData.tokensOutput = Math.max(usageData.tokensOutput || 0, data.message.usage.output_tokens || 0);
         }
 
-        // Update token counts from message_delta events
+        // Update token counts from message_delta events (use Math.max to prevent overwrites)
         if (data.type === 'message_delta' && data.usage) {
-          usageData.tokensOutput = data.usage.output_tokens || usageData.tokensOutput;
+          usageData.tokensOutput = Math.max(usageData.tokensOutput || 0, data.usage.output_tokens || 0);
         }
 
-        // Final usage from message_stop or content_block_stop
+        // Final usage from message_stop or content_block_stop (use Math.max to prevent overwrites)
         if (data.type === 'message_delta' && data.delta?.usage) {
-          usageData.tokensInput = data.delta.usage.input_tokens || usageData.tokensInput;
-          usageData.tokensOutput = data.delta.usage.output_tokens || usageData.tokensOutput;
+          if (data.delta.usage.input_tokens) {
+            usageData.tokensInput = Math.max(usageData.tokensInput || 0, data.delta.usage.input_tokens);
+          }
+          if (data.delta.usage.output_tokens) {
+            usageData.tokensOutput = Math.max(usageData.tokensOutput || 0, data.delta.usage.output_tokens);
+          }
         }
       } catch {
         // Ignore JSON parse errors (non-JSON events)

@@ -2,17 +2,29 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiKeys, providers } from '@/lib/db/schema';
 import { generateApiKey } from '@/lib/auth/api-key';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import type { CreateApiKeyRequest, CreateApiKeyResponse, ListApiKeysResponse } from '@/types';
 import { SystemNotifications } from '@/lib/notifications';
 import { auth } from '@/lib/auth';
 
 /**
  * POST /api/admin/keys - Create a new API key
- * TODO: Add authentication middleware (NextAuth) in Phase 7
+ * Requires authentication
  */
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Unauthorized',
+        } as CreateApiKeyResponse,
+        { status: 401 }
+      );
+    }
+
     const body: CreateApiKeyRequest = await request.json();
 
     // Validate required fields
@@ -56,7 +68,7 @@ export async function POST(request: NextRequest) {
     // Generate API key
     const { fullKey, keyHash, keyPrefix } = await generateApiKey();
 
-    // Insert into database
+    // Insert into database with createdBy field
     const [newApiKey] = await db
       .insert(apiKeys)
       .values({
@@ -70,18 +82,16 @@ export async function POST(request: NextRequest) {
         monthlySpendLimitUsd: body.monthlySpendLimitUsd || null,
         metadata: body.metadata || null,
         isActive: true,
+        createdBy: session.user.id,
       })
       .returning();
 
     // Send notification to the admin who created the key
-    const session = await auth();
-    if (session?.user?.id) {
-      await SystemNotifications.apiKeyCreated(
-        session.user.id,
-        body.name || null,
-        keyPrefix
-      ).catch(err => console.error('Failed to send notification:', err));
-    }
+    await SystemNotifications.apiKeyCreated(
+      session.user.id,
+      body.name || null,
+      keyPrefix
+    ).catch(err => console.error('Failed to send notification:', err));
 
     return NextResponse.json(
       {
@@ -111,11 +121,30 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET /api/admin/keys - List all API keys
- * TODO: Add authentication middleware (NextAuth) in Phase 7
+ * GET /api/admin/keys - List all API keys with pagination
+ * Requires authentication
+ * Query params: page (default 1), limit (default 50, max 100)
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Check authentication
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Unauthorized',
+        } as ListApiKeysResponse,
+        { status: 401 }
+      );
+    }
+
+    // Parse pagination parameters
+    const { searchParams } = new URL(request.url);
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
+    const offset = (page - 1) * limit;
+
     const keys = await db
       .select({
         id: apiKeys.id,
@@ -134,11 +163,27 @@ export async function GET() {
       })
       .from(apiKeys)
       .leftJoin(providers, eq(apiKeys.providerId, providers.id))
-      .orderBy(desc(apiKeys.createdAt));
+      .orderBy(desc(apiKeys.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Get total count for pagination
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(apiKeys);
+
+    const totalPages = Math.ceil(count / limit);
 
     return NextResponse.json(
       {
         success: true,
+        pagination: {
+          page,
+          limit,
+          total: count,
+          totalPages,
+          hasMore: page < totalPages,
+        },
         apiKeys: keys.map((key) => ({
           id: key.id,
           keyPrefix: key.keyPrefix,
