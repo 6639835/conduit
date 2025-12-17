@@ -120,6 +120,36 @@ export const rateLimitCounters = pgTable('rate_limit_counters', {
   expiresAtIdx: index('rate_limit_counters_expires_at_idx').on(table.expiresAt),
 }));
 
+// Providers table (centralized Claude API provider configuration)
+export const providers = pgTable('providers', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  type: varchar('type', { length: 20 }).notNull().default('official'), // 'official', 'bedrock', 'custom'
+  endpoint: text('endpoint').notNull(),
+  apiKey: text('api_key').notNull(), // Encrypted Claude API key
+
+  // Status
+  isActive: boolean('is_active').notNull().default(true),
+  isDefault: boolean('is_default').notNull().default(false),
+  status: varchar('status', { length: 20 }).default('unknown'), // 'healthy', 'unhealthy', 'unknown'
+  lastTestedAt: timestamp('last_tested_at'),
+
+  // Default rate limits for API keys using this provider
+  defaultRateLimits: jsonb('default_rate_limits').notNull().default({
+    requestsPerMinute: 60,
+    requestsPerDay: 1000,
+    tokensPerDay: 1000000,
+  }),
+
+  // Metadata
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  nameIdx: index('providers_name_idx').on(table.name),
+  isActiveIdx: index('providers_is_active_idx').on(table.isActive),
+  isDefaultIdx: index('providers_is_default_idx').on(table.isDefault),
+}));
+
 // Type exports for TypeScript
 export type Admin = typeof admins.$inferSelect;
 export type NewAdmin = typeof admins.$inferInsert;
@@ -135,3 +165,6 @@ export type NewUsageAggregate = typeof usageAggregates.$inferInsert;
 
 export type RateLimitCounter = typeof rateLimitCounters.$inferSelect;
 export type NewRateLimitCounter = typeof rateLimitCounters.$inferInsert;
+
+export type Provider = typeof providers.$inferSelect;
+export type NewProvider = typeof providers.$inferInsert;

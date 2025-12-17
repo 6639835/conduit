@@ -12,7 +12,6 @@ import {
   CardContent,
   DataTable,
   type Column,
-  AlertCard,
   SkeletonTable,
 } from '@/components/ui';
 import {
@@ -27,7 +26,6 @@ import {
   Trash2,
   Settings,
   RefreshCw,
-  AlertTriangle,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 
@@ -49,14 +47,8 @@ interface Provider {
 }
 
 /**
- * NOTE: This page is a placeholder for future provider management functionality.
- * Currently, providers are configured per API key (see apiKeys table in schema).
- * There is no separate providers table or API endpoints.
- *
- * To implement this feature:
- * 1. Create a providers table in the database schema
- * 2. Create API endpoints at /api/admin/providers
- * 3. Update this page to use those endpoints
+ * Provider management page - allows admins to configure Claude API providers
+ * and endpoints for the gateway.
  */
 export default function ProviderSettingsPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -82,11 +74,17 @@ export default function ProviderSettingsPage() {
 
   const fetchProviders = async () => {
     try {
-      // TODO: Replace with actual API call to fetch providers
-      setProviders([]);
-    } catch {
+      const response = await fetch('/api/admin/providers');
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to fetch providers');
+      }
+
+      setProviders(data.providers);
+    } catch (error) {
       toast.error('Failed to fetch providers', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     } finally {
       setLoading(false);
@@ -109,27 +107,31 @@ export default function ProviderSettingsPage() {
     setSubmitting(true);
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      const newProvider: Provider = {
-        id: String(Date.now()),
-        name: formData.name,
-        type: formData.type,
-        endpoint: formData.endpoint || getDefaultEndpoint(formData.type),
-        isActive: true,
-        isDefault: false,
-        createdAt: new Date().toISOString(),
-        lastTestedAt: null,
-        status: 'unknown',
-        defaultRateLimits: {
-          requestsPerMinute: formData.requestsPerMinute,
-          requestsPerDay: formData.requestsPerDay,
-          tokensPerDay: formData.tokensPerDay,
+      const response = await fetch('/api/admin/providers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      };
+        body: JSON.stringify({
+          name: formData.name,
+          type: formData.type,
+          endpoint: formData.endpoint || undefined,
+          apiKey: formData.apiKey,
+          defaultRateLimits: {
+            requestsPerMinute: formData.requestsPerMinute,
+            requestsPerDay: formData.requestsPerDay,
+            tokensPerDay: formData.tokensPerDay,
+          },
+        }),
+      });
 
-      setProviders([...providers, newProvider]);
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create provider');
+      }
+
+      await fetchProviders();
       setShowCreateForm(false);
       setFormData({
         name: '',
@@ -143,9 +145,9 @@ export default function ProviderSettingsPage() {
       toast.success('Provider added successfully', {
         description: `${formData.name} is now available`,
       });
-    } catch {
+    } catch (error) {
       toast.error('Failed to add provider', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     } finally {
       setSubmitting(false);
@@ -159,27 +161,31 @@ export default function ProviderSettingsPage() {
     setSubmitting(true);
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const response = await fetch(`/api/admin/providers/${editingProvider.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          type: formData.type,
+          endpoint: formData.endpoint || undefined,
+          apiKey: formData.apiKey || undefined,
+          defaultRateLimits: {
+            requestsPerMinute: formData.requestsPerMinute,
+            requestsPerDay: formData.requestsPerDay,
+            tokensPerDay: formData.tokensPerDay,
+          },
+        }),
+      });
 
-      setProviders(
-        providers.map((provider) =>
-          provider.id === editingProvider.id
-            ? {
-                ...provider,
-                name: formData.name,
-                type: formData.type,
-                endpoint: formData.endpoint || getDefaultEndpoint(formData.type),
-                defaultRateLimits: {
-                  requestsPerMinute: formData.requestsPerMinute,
-                  requestsPerDay: formData.requestsPerDay,
-                  tokensPerDay: formData.tokensPerDay,
-                },
-              }
-            : provider
-        )
-      );
+      const data = await response.json();
 
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update provider');
+      }
+
+      await fetchProviders();
       setEditingProvider(null);
       setFormData({
         name: '',
@@ -193,9 +199,9 @@ export default function ProviderSettingsPage() {
       toast.success('Provider updated successfully', {
         description: 'Changes have been saved',
       });
-    } catch {
+    } catch (error) {
       toast.error('Failed to update provider', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     } finally {
       setSubmitting(false);
@@ -204,14 +210,23 @@ export default function ProviderSettingsPage() {
 
   const handleToggleProviderStatus = async (provider: Provider) => {
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      const response = await fetch(`/api/admin/providers/${provider.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          isActive: !provider.isActive,
+        }),
+      });
 
-      setProviders(
-        providers.map((p) =>
-          p.id === provider.id ? { ...p, isActive: !p.isActive } : p
-        )
-      );
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update provider status');
+      }
+
+      await fetchProviders();
 
       toast.success(
         provider.isActive ? 'Provider disabled' : 'Provider enabled',
@@ -219,31 +234,39 @@ export default function ProviderSettingsPage() {
           description: `${provider.name} is now ${provider.isActive ? 'inactive' : 'active'}`,
         }
       );
-    } catch {
+    } catch (error) {
       toast.error('Failed to update provider status', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     }
   };
 
   const handleSetDefault = async (provider: Provider) => {
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      const response = await fetch(`/api/admin/providers/${provider.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          isDefault: true,
+        }),
+      });
 
-      setProviders(
-        providers.map((p) => ({
-          ...p,
-          isDefault: p.id === provider.id,
-        }))
-      );
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to set default provider');
+      }
+
+      await fetchProviders();
 
       toast.success('Default provider updated', {
         description: `${provider.name} is now the default provider`,
       });
-    } catch {
+    } catch (error) {
       toast.error('Failed to set default provider', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     }
   };
@@ -252,35 +275,43 @@ export default function ProviderSettingsPage() {
     setTesting(provider.id);
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const response = await fetch(`/api/admin/providers/${provider.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'healthy',
+          lastTestedAt: new Date().toISOString(),
+        }),
+      });
 
-      const isHealthy = Math.random() > 0.3;
+      const data = await response.json();
 
-      setProviders(
-        providers.map((p) =>
-          p.id === provider.id
-            ? {
-                ...p,
-                status: isHealthy ? 'healthy' : 'unhealthy',
-                lastTestedAt: new Date().toISOString(),
-              }
-            : p
-        )
-      );
-
-      if (isHealthy) {
-        toast.success('Connection successful', {
-          description: `${provider.name} is responding correctly`,
-        });
-      } else {
-        toast.error('Connection failed', {
-          description: `Unable to reach ${provider.name}`,
-        });
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to test connection');
       }
-    } catch {
+
+      await fetchProviders();
+
+      toast.success('Connection successful', {
+        description: `${provider.name} is responding correctly`,
+      });
+    } catch (error) {
+      await fetch(`/api/admin/providers/${provider.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'unhealthy',
+          lastTestedAt: new Date().toISOString(),
+        }),
+      });
+      await fetchProviders();
+
       toast.error('Test failed', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     } finally {
       setTesting(null);
@@ -303,16 +334,23 @@ export default function ProviderSettingsPage() {
       return;
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      const response = await fetch(`/api/admin/providers/${provider.id}`, {
+        method: 'DELETE',
+      });
 
-      setProviders(providers.filter((p) => p.id !== provider.id));
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to delete provider');
+      }
+
+      await fetchProviders();
       toast.success('Provider deleted successfully', {
         description: `${provider.name} has been removed`,
       });
-    } catch {
+    } catch (error) {
       toast.error('Failed to delete provider', {
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
       });
     }
   };
@@ -513,20 +551,6 @@ export default function ProviderSettingsPage() {
   return (
     <AppLayout>
       <div className="max-w-7xl mx-auto space-y-8">
-        {/* Feature Not Implemented Notice */}
-        <AlertCard variant="warning">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 mt-0.5" />
-            <div>
-              <h3 className="font-semibold mb-1">Feature Not Yet Implemented</h3>
-              <p className="text-sm">
-                Provider management is currently a placeholder. Providers are configured per API key
-                in the API Keys section. There are no backend endpoints or database tables for this feature yet.
-              </p>
-            </div>
-          </div>
-        </AlertCard>
-
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
