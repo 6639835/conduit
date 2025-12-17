@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils/cn";
-import { ChevronUp, ChevronDown, Search } from "lucide-react";
+import { ChevronUp, ChevronDown, Search, Filter, X } from "lucide-react";
 import { Button } from "./button";
 import { Input } from "./input";
+import { Select } from "./select";
 
 type SortDirection = "asc" | "desc" | null;
 
@@ -12,8 +13,16 @@ export interface Column<T> {
   key: string;
   header: string;
   sortable?: boolean;
+  filterable?: boolean;
+  filterOptions?: { label: string; value: string }[];
   render?: (item: T, index: number) => React.ReactNode;
   className?: string;
+}
+
+export interface TableFilter {
+  key: string;
+  label: string;
+  options: { label: string; value: string }[];
 }
 
 interface DataTableProps<T> {
@@ -21,6 +30,7 @@ interface DataTableProps<T> {
   columns: Column<T>[];
   searchable?: boolean;
   searchPlaceholder?: string;
+  filters?: TableFilter[];
   pageSize?: number;
   className?: string;
   emptyMessage?: string;
@@ -33,6 +43,7 @@ function DataTable<T extends Record<string, any>>({
   columns,
   searchable = false,
   searchPlaceholder = "Search...",
+  filters = [],
   pageSize = 10,
   className,
   emptyMessage = "No data available",
@@ -42,17 +53,38 @@ function DataTable<T extends Record<string, any>>({
   const [sortKey, setSortKey] = React.useState<string | null>(null);
   const [sortDirection, setSortDirection] = React.useState<SortDirection>(null);
   const [currentPage, setCurrentPage] = React.useState(1);
+  const [activeFilters, setActiveFilters] = React.useState<Record<string, string>>({});
+  const [showFilters, setShowFilters] = React.useState(false);
 
-  // Filter data based on search
+  // Filter data based on search and active filters
   const filteredData = React.useMemo(() => {
-    if (!searchQuery) return data;
+    let result = data;
 
-    return data.filter((item) =>
-      Object.values(item).some((value) =>
-        String(value).toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    );
-  }, [data, searchQuery]);
+    // Apply search filter
+    if (searchQuery) {
+      result = result.filter((item) =>
+        Object.values(item).some((value) =>
+          String(value).toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      );
+    }
+
+    // Apply column filters
+    Object.entries(activeFilters).forEach(([key, value]) => {
+      if (value && value !== "all") {
+        result = result.filter((item) => String(item[key]) === value);
+      }
+    });
+
+    return result;
+  }, [data, searchQuery, activeFilters]);
+
+  const clearFilters = () => {
+    setActiveFilters({});
+    setSearchQuery("");
+  };
+
+  const hasActiveFilters = Object.values(activeFilters).some((v) => v && v !== "all") || searchQuery;
 
   // Sort data
   const sortedData = React.useMemo(() => {
@@ -94,21 +126,75 @@ function DataTable<T extends Record<string, any>>({
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, sortKey, sortDirection]);
+  }, [searchQuery, sortKey, sortDirection, activeFilters]);
 
   return (
     <div className={cn("space-y-4", className)}>
-      {searchable && (
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder={searchPlaceholder}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
+      {(searchable || filters.length > 0) && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            {searchable && (
+              <div className="relative flex-1 max-w-sm">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder={searchPlaceholder}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            )}
+            {filters.length > 0 && (
+              <Button
+                variant={showFilters ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowFilters(!showFilters)}
+              >
+                <Filter className="h-4 w-4 mr-2" />
+                Filters
+                {hasActiveFilters && (
+                  <span className="ml-2 rounded-full bg-primary-foreground text-primary w-5 h-5 text-xs flex items-center justify-center">
+                    {Object.values(activeFilters).filter((v) => v && v !== "all").length + (searchQuery ? 1 : 0)}
+                  </span>
+                )}
+              </Button>
+            )}
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            )}
           </div>
+
+          {showFilters && filters.length > 0 && (
+            <div className="flex flex-wrap gap-3 p-3 bg-muted/50 rounded-lg">
+              {filters.map((filter) => (
+                <div key={filter.key} className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {filter.label}
+                  </label>
+                  <Select
+                    value={activeFilters[filter.key] || "all"}
+                    onChange={(e) =>
+                      setActiveFilters((prev) => ({
+                        ...prev,
+                        [filter.key]: e.target.value,
+                      }))
+                    }
+                    className="w-40"
+                  >
+                    <option value="all">All</option>
+                    {filter.options.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -241,4 +327,4 @@ function DataTable<T extends Record<string, any>>({
   );
 }
 
-export { DataTable };
+export { DataTable, type TableFilter };

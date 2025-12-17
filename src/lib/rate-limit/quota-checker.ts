@@ -13,13 +13,64 @@ import type { RateLimitResult } from '@/types';
 const QUOTA_CACHE_TTL = 60; // Cache quota status for 60 seconds
 
 /**
- * Check if API key has exceeded token quota
+ * Check if API key has exceeded token quota or monthly spend limit
  */
 export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
   const now = new Date();
   const today = now.toISOString().slice(0, 10); // YYYY-MM-DD
+  const currentMonth = now.toISOString().slice(0, 7); // YYYY-MM
 
   try {
+    // Check monthly spend limit first (if set)
+    if (apiKey.monthlySpendLimitUsd && apiKey.monthlySpendLimitUsd > 0) {
+      const monthCacheKey = `quota:${apiKey.id}:month:${currentMonth}:spend`;
+      const cachedSpend = await kv.get<{ costUsd: number }>(monthCacheKey);
+
+      let monthlySpend: number;
+      const monthStart = new Date(currentMonth + '-01');
+      monthStart.setHours(0, 0, 0, 0);
+
+      if (cachedSpend) {
+        monthlySpend = cachedSpend.costUsd;
+      } else {
+        // Query database for this month's spending
+        const [monthAggregate] = await db
+          .select({
+            totalCostUsd: usageAggregates.totalCostUsd,
+          })
+          .from(usageAggregates)
+          .where(
+            and(
+              eq(usageAggregates.apiKeyId, apiKey.id),
+              eq(usageAggregates.period, 'month'),
+              gte(usageAggregates.periodStart, monthStart)
+            )
+          )
+          .limit(1);
+
+        monthlySpend = monthAggregate ? Number(monthAggregate.totalCostUsd) / 100 : 0; // Convert from cents to USD
+
+        // Cache the result
+        await kv.set(monthCacheKey, { costUsd: monthlySpend }, { ex: QUOTA_CACHE_TTL });
+      }
+
+      // Check if monthly spend limit exceeded
+      if (monthlySpend >= apiKey.monthlySpendLimitUsd) {
+        const nextMonth = new Date(monthStart);
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        const resetTime = nextMonth.getTime();
+        const retryAfter = Math.ceil((resetTime - now.getTime()) / 1000);
+
+        return {
+          allowed: false,
+          limit: apiKey.monthlySpendLimitUsd,
+          remaining: 0,
+          reset: Math.floor(resetTime / 1000),
+          retryAfter,
+        };
+      }
+    }
+
     // Try to get cached quota status
     const cacheKey = `quota:${apiKey.id}:day:${today}`;
     const cached = await kv.get<{ tokensUsed: number; allowed: boolean }>(cacheKey);

@@ -20,7 +20,7 @@ export {
   SkeletonChart,
 } from "./skeleton";
 export { Toaster } from "./sonner";
-export { DataTable, type Column } from "./table";
+export { DataTable, type Column, type TableFilter } from "./table";
 export {
   ChartWrapper,
   UsageChart,

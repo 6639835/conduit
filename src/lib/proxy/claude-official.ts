@@ -4,12 +4,13 @@
  */
 
 import { decryptApiKey } from '@/lib/utils/crypto';
-import type { ApiKey } from '@/lib/db/schema';
+import type { ApiKey, Provider } from '@/lib/db/schema';
 
 const CLAUDE_API_BASE = 'https://api.anthropic.com';
 
 export interface ProxyOptions {
   apiKey: ApiKey;
+  provider: Provider;
   path: string;
   method: string;
   headers: Headers;
@@ -17,19 +18,20 @@ export interface ProxyOptions {
 }
 
 /**
- * Forward request to Claude Official API
+ * Forward request to Claude API (Official, Bedrock, or Custom)
  * Preserves all headers, query params, and body
- * Replaces Authorization header with target API key
+ * Replaces Authorization header with provider's API key
  */
 export async function proxyToClaudeOfficial(options: ProxyOptions): Promise<Response> {
-  const { apiKey, path, method, headers, body } = options;
+  const { apiKey, provider, path, method, headers, body } = options;
 
   try {
-    // Decrypt target API key
-    const targetApiKey = await decryptApiKey(apiKey.targetApiKey);
+    // Decrypt provider API key
+    const targetApiKey = await decryptApiKey(provider.apiKey);
 
-    // Build full URL
-    const url = `${CLAUDE_API_BASE}${path}`;
+    // Build full URL using provider's endpoint
+    const baseUrl = provider.endpoint || CLAUDE_API_BASE;
+    const url = `${baseUrl}${path}`;
 
     // Create new headers object (clone and modify)
     const proxyHeaders = new Headers();

@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 import { Menu, X, Zap } from "lucide-react";
 import { Button } from "../ui/button";
+import { UserMenu } from "./user-menu";
+import { NotificationsDropdown } from "./notifications-dropdown";
 
 interface HeaderProps {
   onMenuToggle?: () => void;
@@ -70,20 +72,9 @@ export const Header = ({ onMenuToggle, isMenuOpen }: HeaderProps) => {
 
           <div className="h-6 w-px bg-border hidden md:block" />
 
-          <div
-            className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium",
-              isAdmin
-                ? "bg-accent/10 text-accent"
-                : "bg-muted text-muted-foreground"
-            )}
-          >
-            <span className={cn(
-              "h-2 w-2 rounded-full",
-              isAdmin ? "bg-accent" : "bg-muted-foreground"
-            )} />
-            {isAdmin ? "Admin" : "User"}
-          </div>
+          {isAdmin && <NotificationsDropdown />}
+
+          <UserMenu />
         </div>
       </div>
     </header>

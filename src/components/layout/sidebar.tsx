@@ -12,6 +12,9 @@ import {
   Activity,
   Search,
   Gauge,
+  Server,
+  FileText,
+  Bell,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -36,11 +39,10 @@ const adminNavItems: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "API Keys", href: "/admin/keys", icon: Key },
   { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
+  { label: "Providers", href: "/admin/providers", icon: Server },
   { label: "Users", href: "/admin/users", icon: Users },
-  // Note: Providers page removed - provider is a field per API key, not a separate entity
-  // { label: "Providers", href: "/admin/providers", icon: Server },
-  // Note: Settings page not yet implemented
-  // { label: "Settings", href: "/admin/settings", icon: Settings },
+  { label: "Logs", href: "/admin/logs", icon: FileText },
+  { label: "Notifications", href: "/admin/notifications", icon: Bell },
 ];
 
 export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {

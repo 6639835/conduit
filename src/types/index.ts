@@ -7,8 +7,7 @@ export type { ApiKey, UsageLog, UsageAggregate };
 
 export interface CreateApiKeyRequest {
   name?: string;
-  provider: 'official' | 'bedrock';
-  targetApiKey: string;
+  provider: string; // Provider ID (UUID)
   requestsPerMinute?: number;
   requestsPerDay?: number;
   tokensPerDay?: number;

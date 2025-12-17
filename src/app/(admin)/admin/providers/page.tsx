@@ -275,15 +275,8 @@ export default function ProviderSettingsPage() {
     setTesting(provider.id);
 
     try {
-      const response = await fetch(`/api/admin/providers/${provider.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status: 'healthy',
-          lastTestedAt: new Date().toISOString(),
-        }),
+      const response = await fetch(`/api/admin/providers/${provider.id}/test`, {
+        method: 'POST',
       });
 
       const data = await response.json();
@@ -294,9 +287,15 @@ export default function ProviderSettingsPage() {
 
       await fetchProviders();
 
-      toast.success('Connection successful', {
-        description: `${provider.name} is responding correctly`,
-      });
+      if (data.status === 'healthy') {
+        toast.success('Connection successful', {
+          description: `${provider.name} is responding correctly (${data.latency}ms)`,
+        });
+      } else {
+        toast.error('Connection failed', {
+          description: data.error || `${provider.name} is not responding`,
+        });
+      }
     } catch (error) {
       await fetch(`/api/admin/providers/${provider.id}`, {
         method: 'PATCH',

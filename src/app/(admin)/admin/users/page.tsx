@@ -159,12 +159,35 @@ export default function UserManagementPage() {
     }
   };
 
-  const handleToggleUserStatus = async () => {
-    // Note: The admins table doesn't have an isActive field
-    // This functionality is not currently supported
-    toast.error('Feature not available', {
-      description: 'User activation/deactivation is not currently supported',
-    });
+  const handleToggleUserStatus = async (user: User) => {
+    try {
+      const response = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          isActive: !user.isActive,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update user status');
+      }
+
+      // Refresh the user list
+      await fetchUsers();
+
+      toast.success('User status updated successfully', {
+        description: `${user.email} is now ${!user.isActive ? 'active' : 'inactive'}`,
+      });
+    } catch (error) {
+      toast.error('Failed to update user status', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
+      });
+    }
   };
 
   const handleDeleteUser = async (user: User) => {
@@ -323,7 +346,7 @@ export default function UserManagementPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => handleToggleUserStatus()}
+            onClick={() => handleToggleUserStatus(row)}
             className={row.isActive ? 'text-destructive' : 'text-success'}
           >
             {row.isActive ? (

@@ -26,6 +26,7 @@ import {
   Key,
   TrendingUp,
   RefreshCw,
+  Download,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 
@@ -92,6 +93,47 @@ export default function AdminAnalyticsPage() {
       setLoading(false);
     }
   }, [timeRange]);
+
+  const handleExport = async (format: 'csv' | 'json') => {
+    try {
+      const response = await fetch(`/api/admin/analytics/export?format=${format}&days=${timeRange}`);
+
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+
+      if (format === 'json') {
+        const data = await response.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `usage-export-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `usage-export-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }
+
+      toast.success(`Exported as ${format.toUpperCase()}`, {
+        description: 'Download started',
+      });
+    } catch (error) {
+      toast.error('Export failed', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
+      });
+    }
+  };
 
   useEffect(() => {
     fetchAnalytics();
@@ -192,6 +234,14 @@ export default function AdminAnalyticsPage() {
               <option value="30">Last 30 days</option>
               <option value="90">Last 90 days</option>
             </Select>
+            <Button variant="outline" onClick={() => handleExport('csv')}>
+              <Download className="h-4 w-4 mr-2" />
+              CSV
+            </Button>
+            <Button variant="outline" onClick={() => handleExport('json')}>
+              <Download className="h-4 w-4 mr-2" />
+              JSON
+            </Button>
             <Button variant="outline" onClick={fetchAnalytics} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               Refresh

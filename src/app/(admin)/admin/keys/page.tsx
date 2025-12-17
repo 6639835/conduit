@@ -13,6 +13,7 @@ import {
   CardContent,
   DataTable,
   type Column,
+  type TableFilter,
   AlertCard,
   SkeletonTable,
 } from '@/components/ui';
@@ -24,6 +25,7 @@ import {
   Key,
   Shield,
   Clock,
+  Edit,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 
@@ -37,6 +39,7 @@ interface ApiKeyRow {
   requestsPerMinute: number;
   requestsPerDay: number;
   tokensPerDay: number;
+  monthlySpendLimitUsd: number | null;
 }
 
 interface Provider {
@@ -57,6 +60,8 @@ export default function AdminKeysPage() {
   const [loading, setLoading] = useState(true);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingKey, setEditingKey] = useState<ApiKeyRow | null>(null);
+  const [showEditForm, setShowEditForm] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -67,6 +72,7 @@ export default function AdminKeysPage() {
     requestsPerMinute: 60,
     requestsPerDay: 1000,
     tokensPerDay: 1000000,
+    monthlySpendLimitUsd: 100,
   });
 
   useEffect(() => {
@@ -143,6 +149,7 @@ export default function AdminKeysPage() {
           requestsPerMinute: defaultProvider?.defaultRateLimits.requestsPerMinute || 60,
           requestsPerDay: defaultProvider?.defaultRateLimits.requestsPerDay || 1000,
           tokensPerDay: defaultProvider?.defaultRateLimits.tokensPerDay || 1000000,
+          monthlySpendLimitUsd: 100,
         });
         toast.success('API key created successfully', {
           description: 'Your new API key is ready to use',
@@ -183,6 +190,61 @@ export default function AdminKeysPage() {
       toast.error('Failed to revoke API key', {
         description: 'An unexpected error occurred',
       });
+    }
+  };
+
+  const handleEditKey = (key: ApiKeyRow) => {
+    setEditingKey(key);
+    setFormData({
+      name: key.name || '',
+      provider: '', // Provider is not editable
+      requestsPerMinute: key.requestsPerMinute,
+      requestsPerDay: key.requestsPerDay,
+      tokensPerDay: key.tokensPerDay,
+      monthlySpendLimitUsd: key.monthlySpendLimitUsd || 0,
+    });
+    setShowEditForm(true);
+  };
+
+  const handleUpdateKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingKey) return;
+
+    setSubmitting(true);
+
+    try {
+      const response = await fetch(`/api/admin/keys/${editingKey.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name || null,
+          requestsPerMinute: formData.requestsPerMinute,
+          requestsPerDay: formData.requestsPerDay,
+          tokensPerDay: formData.tokensPerDay,
+          monthlySpendLimitUsd: formData.monthlySpendLimitUsd || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setShowEditForm(false);
+        setEditingKey(null);
+        fetchKeys();
+        toast.success('API key updated successfully', {
+          description: 'The API key has been updated',
+        });
+      } else {
+        toast.error('Failed to update API key', {
+          description: data.error || 'An unexpected error occurred',
+        });
+      }
+    } catch {
+      toast.error('Failed to update API key', {
+        description: 'An unexpected error occurred',
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -275,14 +337,23 @@ export default function AdminKeysPage() {
       header: '',
       render: (row) =>
         row.isActive ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleRevokeKey(row.id)}
-            className="text-destructive border-destructive hover:bg-destructive hover:text-white"
-          >
-            Revoke
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleEditKey(row)}
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleRevokeKey(row.id)}
+              className="text-destructive border-destructive hover:bg-destructive hover:text-white"
+            >
+              Revoke
+            </Button>
+          </div>
         ) : null,
     },
   ];
@@ -474,6 +545,23 @@ export default function AdminKeysPage() {
                   </div>
                 </div>
 
+                <div className="space-y-4">
+                  <h4 className="font-medium">Spending Limit</h4>
+                  <Input
+                    label="Monthly Spend Limit (USD)"
+                    type="number"
+                    value={formData.monthlySpendLimitUsd}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        monthlySpendLimitUsd: parseInt(e.target.value) || 0,
+                      })
+                    }
+                    placeholder="100"
+                    helpText="Maximum amount in USD that can be spent per month. Leave at 0 for no limit."
+                  />
+                </div>
+
                 <Button
                   type="submit"
                   className="w-full"
@@ -482,6 +570,104 @@ export default function AdminKeysPage() {
                 >
                   <Key className="h-4 w-4 mr-2" />
                   Create API Key
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Edit Form */}
+        {showEditForm && editingKey && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">Edit API Key - {editingKey.keyPrefix}</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowEditForm(false);
+                    setEditingKey(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleUpdateKey} className="space-y-6">
+                <Input
+                  label="Name (optional)"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                  placeholder="My API Key"
+                />
+
+                <div className="space-y-4">
+                  <h4 className="font-medium">Rate Limits</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Input
+                      label="Requests per Minute"
+                      type="number"
+                      value={formData.requestsPerMinute}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          requestsPerMinute: parseInt(e.target.value),
+                        })
+                      }
+                    />
+                    <Input
+                      label="Requests per Day"
+                      type="number"
+                      value={formData.requestsPerDay}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          requestsPerDay: parseInt(e.target.value),
+                        })
+                      }
+                    />
+                    <Input
+                      label="Tokens per Day"
+                      type="number"
+                      value={formData.tokensPerDay}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          tokensPerDay: parseInt(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="font-medium">Spending Limit</h4>
+                  <Input
+                    label="Monthly Spend Limit (USD)"
+                    type="number"
+                    value={formData.monthlySpendLimitUsd}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        monthlySpendLimitUsd: parseInt(e.target.value) || 0,
+                      })
+                    }
+                    placeholder="100"
+                    helpText="Maximum amount in USD that can be spent per month. Leave at 0 for no limit."
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  isLoading={submitting}
+                >
+                  <Key className="h-4 w-4 mr-2" />
+                  Update API Key
                 </Button>
               </form>
             </CardContent>
@@ -502,6 +688,24 @@ export default function AdminKeysPage() {
                 columns={columns}
                 searchable
                 searchPlaceholder="Search by name or key prefix..."
+                filters={[
+                  {
+                    key: 'isActive',
+                    label: 'Status',
+                    options: [
+                      { label: 'Active', value: 'true' },
+                      { label: 'Revoked', value: 'false' },
+                    ],
+                  },
+                  {
+                    key: 'provider',
+                    label: 'Provider',
+                    options: providers.map((p) => ({
+                      label: p.name,
+                      value: p.name,
+                    })),
+                  },
+                ] as TableFilter[]}
                 pageSize={10}
                 emptyMessage="No API keys created yet. Click 'Create New Key' to get started."
                 rowClassName={(row) =>

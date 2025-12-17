@@ -135,6 +135,7 @@ export async function GET() {
         id: admins.id,
         email: admins.email,
         name: admins.name,
+        isActive: admins.isActive,
         createdAt: admins.createdAt,
         updatedAt: admins.updatedAt,
       })
@@ -157,7 +158,7 @@ export async function GET() {
           email: user.email,
           name: user.name,
           role: 'admin' as const, // All users in admins table are admins
-          isActive: true, // No isActive field in schema, so always true
+          isActive: user.isActive,
           createdAt: user.createdAt.toISOString(),
           lastActiveAt: user.updatedAt.toISOString(), // Using updatedAt as proxy
           apiKeyCount: keyCount[0]?.count || 0,

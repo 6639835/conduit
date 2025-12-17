@@ -8,6 +8,7 @@ interface UpdateUserRequest {
   email?: string;
   name?: string;
   password?: string;
+  isActive?: boolean;
 }
 
 interface UpdateUserResponse {
@@ -57,6 +58,7 @@ export async function GET(
         id: admins.id,
         email: admins.email,
         name: admins.name,
+        isActive: admins.isActive,
         createdAt: admins.createdAt,
         updatedAt: admins.updatedAt,
       })
@@ -91,7 +93,7 @@ export async function GET(
           email: user.email,
           name: user.name,
           role: 'admin' as const,
-          isActive: true,
+          isActive: user.isActive,
           createdAt: user.createdAt.toISOString(),
           lastActiveAt: user.updatedAt.toISOString(),
           apiKeyCount: keyCount[0]?.count || 0,
@@ -167,6 +169,10 @@ export async function PATCH(
 
     if (body.password !== undefined && body.password.length > 0) {
       updates.passwordHash = await bcrypt.hash(body.password, 10);
+    }
+
+    if (body.isActive !== undefined) {
+      updates.isActive = body.isActive;
     }
 
     // Update in database

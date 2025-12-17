@@ -6,6 +6,7 @@ export const admins = pgTable('admins', {
   email: varchar('email', { length: 255 }).notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   name: varchar('name', { length: 255 }),
+  isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -141,6 +142,33 @@ export const usageAggregates = pgTable('usage_aggregates', {
   periodStartIdx: index('usage_aggregates_period_start_idx').on(table.periodStart),
 }));
 
+// Notifications table for in-app notifications
+export const notifications = pgTable('notifications', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  adminId: uuid('admin_id').references(() => admins.id),
+
+  // Notification content
+  type: varchar('type', { length: 50 }).notNull(), // 'info', 'warning', 'error', 'success'
+  title: varchar('title', { length: 255 }).notNull(),
+  message: text('message').notNull(),
+
+  // Optional link for actionable notifications
+  actionUrl: text('action_url'),
+  actionLabel: varchar('action_label', { length: 100 }),
+
+  // Status
+  isRead: boolean('is_read').notNull().default(false),
+  readAt: timestamp('read_at'),
+
+  // Metadata
+  metadata: jsonb('metadata'), // For extra context like apiKeyId, providerId, etc.
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  adminIdIdx: index('notifications_admin_id_idx').on(table.adminId),
+  isReadIdx: index('notifications_is_read_idx').on(table.isRead),
+  createdAtIdx: index('notifications_created_at_idx').on(table.createdAt),
+}));
+
 // Rate limit tracking (optional DB fallback if KV unavailable)
 export const rateLimitCounters = pgTable('rate_limit_counters', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -172,3 +200,6 @@ export type NewRateLimitCounter = typeof rateLimitCounters.$inferInsert;
 
 export type Provider = typeof providers.$inferSelect;
 export type NewProvider = typeof providers.$inferInsert;
+
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;

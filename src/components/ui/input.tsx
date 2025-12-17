@@ -7,10 +7,11 @@ export interface InputProps
   error?: string;
   success?: boolean;
   label?: string;
+  helpText?: string;
 }
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, error, success, label, id, ...props }, ref) => {
+  ({ className, type, error, success, label, id, helpText, ...props }, ref) => {
     const generatedId = React.useId();
     const inputId = id || generatedId;
     const hasError = !!error;
@@ -52,6 +53,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         </div>
         {hasError && (
           <p className="mt-1 text-sm text-destructive">{error}</p>
+        )}
+        {!hasError && helpText && (
+          <p className="mt-1 text-sm text-muted-foreground">{helpText}</p>
         )}
       </div>
     );

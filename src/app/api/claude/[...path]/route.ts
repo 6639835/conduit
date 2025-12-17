@@ -5,6 +5,9 @@ import { createStreamingResponse, isStreamingResponse, parseNonStreamingResponse
 import { checkRateLimit, addRateLimitHeaders, createRateLimitResponse } from '@/lib/rate-limit';
 import { checkQuota, createQuotaExceededResponse, incrementTokenUsage } from '@/lib/rate-limit/quota-checker';
 import { logUsageAsync, extractRequestMetadata } from '@/lib/analytics/logger';
+import { db } from '@/lib/db';
+import { providers } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 import { UnauthorizedError } from '@/types';
 
 // Configure edge runtime for global distribution
@@ -60,6 +63,37 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       );
     }
 
+    // Fetch provider for this API key
+    const [provider] = await db
+      .select()
+      .from(providers)
+      .where(eq(providers.id, apiKey.providerId))
+      .limit(1);
+
+    if (!provider) {
+      return NextResponse.json(
+        {
+          error: {
+            type: 'configuration_error',
+            message: 'Provider not found for this API key',
+          },
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!provider.isActive) {
+      return NextResponse.json(
+        {
+          error: {
+            type: 'configuration_error',
+            message: 'Provider is not active',
+          },
+        },
+        { status: 503 }
+      );
+    }
+
     // Check rate limits
     const rateLimitResult = await checkRateLimit(apiKey);
     if (!rateLimitResult.allowed) {
@@ -85,6 +119,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     // Forward request to Claude API
     const upstreamResponse = await proxyToClaudeOfficial({
       apiKey,
+      provider,
       path,
       method: request.method,
       headers: request.headers,
