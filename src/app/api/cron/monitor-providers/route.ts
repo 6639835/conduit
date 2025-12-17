@@ -13,13 +13,7 @@ const CRON_SECRET = process.env.CRON_SECRET;
  * Monitors provider health and sends notifications for status changes
  *
  * This endpoint should be called by a cron job (e.g., every 5 minutes)
- * Configure in vercel.json:
- * {
- *   "crons": [{
- *     "path": "/api/cron/monitor-providers",
- *     "schedule": "*/5 * * * *"
- *   }]
- * }
+ * Configure in vercel.json with schedule: "every 5 minutes"
  */
 export async function POST(request: NextRequest) {
   try {
@@ -57,7 +51,6 @@ export async function POST(request: NextRequest) {
 
         // Make a test request to the provider
         const testUrl = `${provider.endpoint}/v1/messages`;
-        const startTime = Date.now();
 
         const response = await fetch(testUrl, {
           method: 'POST',
@@ -79,7 +72,6 @@ export async function POST(request: NextRequest) {
           signal: AbortSignal.timeout(10000), // 10 second timeout
         });
 
-        const latency = Date.now() - startTime;
         const isHealthy = response.ok || response.status === 400;
 
         // Update provider status
@@ -116,7 +108,7 @@ export async function POST(request: NextRequest) {
             results.notifications++;
           }
         }
-      } catch (error) {
+      } catch (_error) {
         // Connection failed
         results.unhealthy++;
 

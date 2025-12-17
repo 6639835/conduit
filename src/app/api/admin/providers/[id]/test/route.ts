@@ -4,7 +4,6 @@ import { providers } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { decryptApiKey } from '@/lib/utils/crypto';
 import { SystemNotifications } from '@/lib/notifications';
-import { auth } from '@/lib/auth';
 
 /**
  * POST /api/admin/providers/[id]/test - Test provider connection
@@ -76,7 +75,6 @@ export async function POST(
         .where(eq(providers.id, id));
 
       // Send notifications on status changes
-      const session = await auth();
       if (previousStatus !== (isHealthy ? 'healthy' : 'unhealthy')) {
         if (!isHealthy) {
           // Provider became unhealthy - notify all admins (null adminId)

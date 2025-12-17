@@ -5,7 +5,7 @@
 
 import { kv } from '@vercel/kv';
 import { db } from '@/lib/db';
-import { usageAggregates, apiKeys } from '@/lib/db/schema';
+import { usageAggregates } from '@/lib/db/schema';
 import { eq, and, gte } from 'drizzle-orm';
 import type { ApiKey } from '@/lib/db/schema';
 import type { RateLimitResult } from '@/types';

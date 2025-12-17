@@ -13,13 +13,7 @@ const CRON_SECRET = process.env.CRON_SECRET;
  * Monitors API key quotas and sends notifications when approaching limits
  *
  * This endpoint should be called by a cron job (e.g., every hour)
- * Configure in vercel.json:
- * {
- *   "crons": [{
- *     "path": "/api/cron/monitor-quotas",
- *     "schedule": "0 * * * *"
- *   }]
- * }
+ * Configure in vercel.json with schedule: "every hour"
  */
 export async function POST(request: NextRequest) {
   try {
