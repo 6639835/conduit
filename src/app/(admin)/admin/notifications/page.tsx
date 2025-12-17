@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { toast } from "sonner";
@@ -122,6 +123,40 @@ export default function AdminNotificationsPage() {
     }
   };
 
+  const deleteNotification = async (notificationId: string) => {
+    try {
+      const response = await fetch("/api/admin/notifications", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notificationIds: [notificationId] }),
+      });
+      if (response.ok) {
+        setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+        toast.success("Notification deleted");
+      }
+    } catch (error) {
+      console.error("Failed to delete notification:", error);
+      toast.error("Failed to delete notification");
+    }
+  };
+
+  const deleteAllNotifications = async () => {
+    try {
+      const response = await fetch("/api/admin/notifications", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deleteAll: true }),
+      });
+      if (response.ok) {
+        setNotifications([]);
+        toast.success("All notifications deleted");
+      }
+    } catch (error) {
+      console.error("Failed to delete all notifications:", error);
+      toast.error("Failed to delete notifications");
+    }
+  };
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleString();
@@ -148,6 +183,12 @@ export default function AdminNotificationsPage() {
             <Button variant="outline" size="sm" onClick={markAllAsRead}>
               <CheckCheck className="h-4 w-4 mr-2" />
               Mark All Read
+            </Button>
+          )}
+          {notifications.length > 0 && (
+            <Button variant="outline" size="sm" onClick={deleteAllNotifications}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete All
             </Button>
           )}
         </div>
@@ -310,6 +351,15 @@ export default function AdminNotificationsPage() {
                               {notification.actionLabel || "View"}
                             </Button>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => deleteNotification(notification.id)}
+                            title="Delete notification"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>

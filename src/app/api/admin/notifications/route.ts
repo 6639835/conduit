@@ -158,3 +158,53 @@ export async function PATCH(request: NextRequest) {
     );
   }
 }
+
+/**
+ * DELETE /api/admin/notifications - Delete notifications
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const body = await request.json();
+    const { notificationIds, deleteAll } = body;
+
+    if (deleteAll) {
+      // Delete all notifications for the current user
+      await db
+        .delete(notifications)
+        .where(eq(notifications.adminId, session.user.id));
+    } else if (notificationIds && Array.isArray(notificationIds)) {
+      // Delete specific notifications
+      for (const id of notificationIds) {
+        await db
+          .delete(notifications)
+          .where(
+            and(
+              eq(notifications.id, id),
+              eq(notifications.adminId, session.user.id)
+            )
+          );
+      }
+    } else {
+      return NextResponse.json(
+        { success: false, error: 'Must provide notificationIds or deleteAll' },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting notifications:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to delete notifications' },
+      { status: 500 }
+    );
+  }
+}
