@@ -7,10 +7,13 @@
  *   npm run db:seed -- --email admin@example.com       # Will prompt for password and name
  */
 
-import { db } from '../src/lib/db';
-import { admins } from '../src/lib/db/schema';
-import { hash } from 'bcryptjs';
+// Load environment variables from .env.local BEFORE any other imports
+import { config } from 'dotenv';
+import { resolve } from 'path';
 import * as readline from 'readline';
+
+// Load .env.local file first
+config({ path: resolve(__dirname, '../.env.local') });
 
 interface AdminInput {
   email: string;
@@ -100,6 +103,11 @@ async function seed() {
   console.log('🌱 Creating admin user...\n');
 
   try {
+    // Import db and related modules AFTER dotenv is loaded
+    const { db } = await import('../src/lib/db');
+    const { admins } = await import('../src/lib/db/schema');
+    const { hash } = await import('bcryptjs');
+
     // Get admin input
     const adminInput = await getAdminInput();
 

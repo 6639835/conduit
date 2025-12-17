@@ -56,10 +56,10 @@ export default function AdminDashboard() {
 
         if (data.success && data.analytics) {
           setStats({
-            totalKeys: data.analytics.overview.totalApiKeys,
-            activeKeys: data.analytics.overview.activeApiKeys,
-            totalRequests: data.analytics.overview.totalRequests,
-            totalCost: data.analytics.overview.totalCostUsd,
+            totalKeys: Number(data.analytics.overview.totalApiKeys) || 0,
+            activeKeys: Number(data.analytics.overview.activeApiKeys) || 0,
+            totalRequests: Number(data.analytics.overview.totalRequests) || 0,
+            totalCost: Number(data.analytics.overview.totalCostUsd) || 0,
           });
         }
       } catch {
