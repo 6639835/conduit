@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { AppLayout } from "@/components/layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +16,6 @@ import {
   Bell,
   Check,
   CheckCheck,
-  Trash2,
   AlertCircle,
   Info,
   AlertTriangle,
@@ -130,8 +130,9 @@ export default function AdminNotificationsPage() {
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <AppLayout>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Notifications</h1>
           <p className="text-muted-foreground mt-1">
@@ -319,6 +320,7 @@ export default function AdminNotificationsPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </AppLayout>
   );
 }
