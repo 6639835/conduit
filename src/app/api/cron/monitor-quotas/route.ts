@@ -134,7 +134,6 @@ async function processKeyQuotas(
         }
       }
     }
-  }
 
   // Check monthly spend limit
   if (key.monthlySpendLimitUsd && key.monthlySpendLimitUsd > 0) {
@@ -189,7 +188,6 @@ async function processKeyQuotas(
       }
     }
   }
-}
 
 // Also support GET for manual triggering (with auth)
 export async function GET(request: NextRequest) {
