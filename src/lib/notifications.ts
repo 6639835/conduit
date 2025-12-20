@@ -161,4 +161,36 @@ export const SystemNotifications = {
       metadata: { keyPrefix, limit },
     });
   },
+
+  /**
+   * Notify when an API key is expiring soon
+   */
+  async apiKeyExpiringSoon(adminId: string, keyName: string, expiresAt: Date) {
+    const daysUntilExpiry = Math.ceil((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    return createNotification({
+      adminId,
+      type: 'warning',
+      title: 'API Key Expiring Soon',
+      message: `API key "${keyName}" will expire in ${daysUntilExpiry} day${daysUntilExpiry !== 1 ? 's' : ''}.`,
+      actionUrl: '/admin/keys',
+      actionLabel: 'View API Keys',
+      metadata: { keyName, expiresAt: expiresAt.toISOString(), daysUntilExpiry },
+    });
+  },
+
+  /**
+   * Notify when cost projection indicates potential overspend
+   */
+  async costProjectionAlert(adminId: string, keyName: string, projectedCost: number, limit: number) {
+    const percentOfLimit = Math.round((projectedCost / limit) * 100);
+    return createNotification({
+      adminId,
+      type: 'warning',
+      title: 'Cost Projection Alert',
+      message: `API key "${keyName}" is projected to reach ${percentOfLimit}% of its monthly spend limit ($${(projectedCost / 100).toFixed(2)} of $${(limit / 100).toFixed(2)}).`,
+      actionUrl: '/admin/keys',
+      actionLabel: 'View API Keys',
+      metadata: { keyName, projectedCost, limit, percentOfLimit },
+    });
+  },
 };

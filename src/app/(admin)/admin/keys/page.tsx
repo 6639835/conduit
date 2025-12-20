@@ -74,6 +74,13 @@ export default function AdminKeysPage() {
     requestsPerDay: 1000,
     tokensPerDay: 1000000,
     monthlySpendLimitUsd: 100,
+    expiresAt: '',
+    ipWhitelist: '',
+    ipBlacklist: '',
+    allowedModels: '',
+    allowedEndpoints: '',
+    organizationId: '',
+    projectId: '',
   });
 
   useEffect(() => {
@@ -131,10 +138,20 @@ export default function AdminKeysPage() {
     setSubmitting(true);
 
     try {
+      // Prepare the payload with proper formatting
+      const payload = {
+        ...formData,
+        expiresAt: formData.expiresAt ? new Date(formData.expiresAt).toISOString() : null,
+        ipWhitelist: formData.ipWhitelist ? formData.ipWhitelist.split('\n').filter(Boolean) : null,
+        ipBlacklist: formData.ipBlacklist ? formData.ipBlacklist.split('\n').filter(Boolean) : null,
+        allowedModels: formData.allowedModels ? formData.allowedModels.split(',').map(m => m.trim()).filter(Boolean) : null,
+        allowedEndpoints: formData.allowedEndpoints ? formData.allowedEndpoints.split(',').map(e => e.trim()).filter(Boolean) : null,
+      };
+
       const response = await fetch('/api/admin/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       const data: CreateApiKeyResponse = await response.json();
@@ -151,6 +168,13 @@ export default function AdminKeysPage() {
           requestsPerDay: defaultProvider?.defaultRateLimits.requestsPerDay || 1000,
           tokensPerDay: defaultProvider?.defaultRateLimits.tokensPerDay || 1000000,
           monthlySpendLimitUsd: 100,
+          expiresAt: '',
+          ipWhitelist: '',
+          ipBlacklist: '',
+          allowedModels: '',
+          allowedEndpoints: '',
+          organizationId: '',
+          projectId: '',
         });
         toast.success('API key created successfully', {
           description: 'Your new API key is ready to use',
@@ -203,6 +227,13 @@ export default function AdminKeysPage() {
       requestsPerDay: key.requestsPerDay,
       tokensPerDay: key.tokensPerDay,
       monthlySpendLimitUsd: key.monthlySpendLimitUsd || 0,
+      expiresAt: '',
+      ipWhitelist: '',
+      ipBlacklist: '',
+      allowedModels: '',
+      allowedEndpoints: '',
+      organizationId: '',
+      projectId: '',
     });
     setShowEditForm(true);
   };
@@ -561,6 +592,77 @@ export default function AdminKeysPage() {
                     placeholder="100"
                     helpText="Maximum amount in USD that can be spent per month. Leave at 0 for no limit."
                   />
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="font-medium">Security Settings (Optional)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium">Expiration Date</label>
+                      <Input
+                        type="date"
+                        value={formData.expiresAt}
+                        onChange={(e) =>
+                          setFormData({ ...formData, expiresAt: e.target.value })
+                        }
+                        helpText="When should this key expire?"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium">Allowed Models</label>
+                      <Input
+                        value={formData.allowedModels}
+                        onChange={(e) =>
+                          setFormData({ ...formData, allowedModels: e.target.value })
+                        }
+                        placeholder="claude-3-5-sonnet-20241022, claude-3-opus-20240229"
+                        helpText="Comma-separated model IDs (leave empty for all)"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium">IP Whitelist</label>
+                      <textarea
+                        className="flex w-full rounded-lg border border-border bg-background px-3 py-2 text-sm min-h-[80px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        value={formData.ipWhitelist}
+                        onChange={(e) =>
+                          setFormData({ ...formData, ipWhitelist: e.target.value })
+                        }
+                        placeholder="192.168.1.1&#10;10.0.0.0/24"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        One IP/CIDR per line. If set, only these IPs can use this key.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium">IP Blacklist</label>
+                      <textarea
+                        className="flex w-full rounded-lg border border-border bg-background px-3 py-2 text-sm min-h-[80px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        value={formData.ipBlacklist}
+                        onChange={(e) =>
+                          setFormData({ ...formData, ipBlacklist: e.target.value })
+                        }
+                        placeholder="192.168.1.100&#10;10.0.0.5"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        One IP/CIDR per line. These IPs will be blocked from using this key.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium">Allowed Endpoints</label>
+                    <Input
+                      value={formData.allowedEndpoints}
+                      onChange={(e) =>
+                        setFormData({ ...formData, allowedEndpoints: e.target.value })
+                      }
+                      placeholder="/v1/messages, /v1/complete"
+                      helpText="Comma-separated endpoint paths (leave empty for all)"
+                    />
+                  </div>
                 </div>
 
                 <Button

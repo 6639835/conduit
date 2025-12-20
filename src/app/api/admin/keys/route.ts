@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     // Generate API key
     const { fullKey, keyHash, keyPrefix } = await generateApiKey();
 
-    // Insert into database with createdBy field
+    // Insert into database with createdBy field and new security fields
     const [newApiKey] = await db
       .insert(apiKeys)
       .values({
@@ -83,6 +83,15 @@ export async function POST(request: NextRequest) {
         metadata: body.metadata || null,
         isActive: true,
         createdBy: session.user.id,
+        expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+        ipWhitelist: body.ipWhitelist || null,
+        ipBlacklist: body.ipBlacklist || null,
+        scopes: (body.allowedModels || body.allowedEndpoints) ? {
+          models: body.allowedModels || undefined,
+          endpoints: body.allowedEndpoints || undefined,
+        } : null,
+        organizationId: body.organizationId || null,
+        projectId: body.projectId || null,
       })
       .returning();
 

@@ -13,6 +13,13 @@ export interface CreateApiKeyRequest {
   tokensPerDay?: number;
   monthlySpendLimitUsd?: number;
   metadata?: Record<string, unknown>;
+  expiresAt?: string;
+  ipWhitelist?: string[];
+  ipBlacklist?: string[];
+  allowedModels?: string[];
+  allowedEndpoints?: string[];
+  organizationId?: string;
+  projectId?: string;
 }
 
 export interface CreateApiKeyResponse {

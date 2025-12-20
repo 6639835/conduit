@@ -84,7 +84,7 @@ export async function GET() {
 
     return new NextResponse(metrics, {
       headers: {
-        'Content-Type': 'text/plain; version=0.0.4',
+        'Content-Type': 'text/plain; version=1.0.0',
       },
     });
   } catch (error) {

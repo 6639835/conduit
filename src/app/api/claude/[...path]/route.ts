@@ -9,6 +9,11 @@ import { db } from '@/lib/db';
 import { providers } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { UnauthorizedError } from '@/types';
+import { validateIpAccess, getClientIp } from '@/lib/security/ip-security';
+import { verifyHmacSignature, extractHmacHeaders } from '@/lib/security/hmac';
+import { isKeyExpired } from '@/lib/key-rotation';
+import { getCachedResponse, setCachedResponse, generateCacheKey, isCacheable } from '@/lib/cache';
+import { transformResponse, type TransformationRule } from '@/lib/proxy/response-transformer';
 
 // Configure edge runtime for global distribution
 export const runtime = 'edge';
@@ -63,6 +68,132 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       );
     }
 
+    // Check if key has expired
+    if (isKeyExpired(apiKey.expiresAt)) {
+      return NextResponse.json(
+        {
+          error: {
+            type: 'authentication_error',
+            message: 'API key has expired',
+          },
+        },
+        { status: 401 }
+      );
+    }
+
+    // IP security check
+    const clientIp = getClientIp(request);
+    const ipCheck = validateIpAccess(clientIp, apiKey);
+    if (!ipCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: {
+            type: 'permission_error',
+            message: ipCheck.reason || 'IP address not authorized',
+          },
+        },
+        { status: 403 }
+      );
+    }
+
+    // Parse request body if present (needed for HMAC and scope validation)
+    let body = null;
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      const contentType = request.headers.get('content-type');
+      if (contentType?.includes('application/json')) {
+        try {
+          body = await request.json();
+        } catch (error) {
+          console.error('Failed to parse request body as JSON:', error);
+          return NextResponse.json(
+            {
+              error: {
+                type: 'invalid_request_error',
+                message: 'Invalid JSON in request body',
+              },
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    // HMAC signature verification
+    if (apiKey.hmacEnabled && apiKey.hmacSecret) {
+      const { signature, timestamp } = extractHmacHeaders(request);
+
+      if (!signature || !timestamp) {
+        return NextResponse.json(
+          {
+            error: {
+              type: 'authentication_error',
+              message: 'Missing HMAC signature or timestamp headers',
+            },
+          },
+          { status: 401 }
+        );
+      }
+
+      const requestBody = body ? JSON.stringify(body) : '';
+      const hmacResult = await verifyHmacSignature(
+        apiKey.hmacSecret,
+        signature,
+        request.method,
+        path,
+        timestamp,
+        requestBody
+      );
+
+      if (!hmacResult.valid) {
+        return NextResponse.json(
+          {
+            error: {
+              type: 'authentication_error',
+              message: hmacResult.reason || 'Invalid HMAC signature',
+            },
+          },
+          { status: 401 }
+        );
+      }
+    }
+
+    // Scope validation (model and endpoint restrictions)
+    if (apiKey.scopes) {
+      const scopes = apiKey.scopes as { models?: string[]; endpoints?: string[] };
+
+      // Check endpoint restriction
+      if (scopes.endpoints && scopes.endpoints.length > 0) {
+        const allowed = scopes.endpoints.some((endpoint) => path.startsWith(endpoint));
+        if (!allowed) {
+          return NextResponse.json(
+            {
+              error: {
+                type: 'permission_error',
+                message: `API key not authorized for endpoint: ${path}`,
+              },
+            },
+            { status: 403 }
+          );
+        }
+      }
+
+      // Check model restriction (will be verified after parsing request body)
+      if (body && scopes.models && scopes.models.length > 0) {
+        const requestedModel = body.model;
+        if (requestedModel && !scopes.models.includes(requestedModel)) {
+          return NextResponse.json(
+            {
+              error: {
+                type: 'permission_error',
+                message: `API key not authorized for model: ${requestedModel}`,
+              },
+            },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
     // Fetch provider for this API key
     const [provider] = await db
       .select()
@@ -106,25 +237,24 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       return createQuotaExceededResponse(quotaResult);
     }
 
-    // Parse request body if present
-    let body = null;
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      const contentType = request.headers.get('content-type');
-      if (contentType?.includes('application/json')) {
-        try {
-          body = await request.json();
-        } catch (error) {
-          console.error('Failed to parse request body as JSON:', error);
-          return NextResponse.json(
-            {
-              error: {
-                type: 'invalid_request_error',
-                message: 'Invalid JSON in request body',
-              },
-            },
-            { status: 400 }
-          );
-        }
+    // Check cache for non-streaming requests
+    if (body && provider.cacheEnabled && isCacheable(body)) {
+      const cacheKey = await generateCacheKey(body.model || 'claude-3-5-sonnet-20241022', body);
+      const cachedResponse = await getCachedResponse(cacheKey);
+
+      if (cachedResponse) {
+        console.log('Cache hit for request');
+
+        // Return cached response with cache headers
+        const headers = new Headers();
+        headers.set('X-Cache', 'HIT');
+        headers.set('Content-Type', 'application/json');
+        addRateLimitHeaders(headers, rateLimitResult);
+
+        return NextResponse.json(cachedResponse, {
+          status: 200,
+          headers,
+        });
       }
     }
 
@@ -195,16 +325,75 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         statusCode: upstreamResponse.status,
         ...requestMetadata,
       });
+
+      // Cache successful responses if caching is enabled
+      if (
+        body &&
+        provider.cacheEnabled &&
+        isCacheable(body) &&
+        upstreamResponse.status === 200
+      ) {
+        const cacheKey = await generateCacheKey(usageData.model, body);
+        const ttl = provider.cacheTtlSeconds || 300;
+
+        // Store in cache (don't await - fire and forget)
+        setCachedResponse(
+          cacheKey,
+          responseBody,
+          usageData.model,
+          usageData.tokensInput,
+          usageData.tokensOutput,
+          ttl
+        ).catch((err) => console.error('Cache storage error:', err));
+      }
     }
 
     // Clean headers and add rate limit info
     const headers = cleanResponseHeaders(upstreamResponse.headers);
+    headers.set('X-Cache', 'MISS');
     addRateLimitHeaders(headers, rateLimitResult);
 
-    return NextResponse.json(responseBody, {
-      status: upstreamResponse.status,
+    // Apply response transformations if configured
+    let finalBody = responseBody;
+    let finalHeaders = headers;
+    let finalStatus = upstreamResponse.status;
+
+    if (apiKey.transformationRules && Array.isArray(apiKey.transformationRules)) {
+      try {
+        const transformableResponse = {
+          status: upstreamResponse.status,
+          statusText: upstreamResponse.statusText || '',
+          headers: Object.fromEntries(headers.entries()),
+          body: responseBody,
+        };
+
+        const transformed = await transformResponse(
+          transformableResponse,
+          apiKey.transformationRules as TransformationRule[],
+          {
+            model: usageData?.model,
+            endpoint: path,
+          }
+        );
+
+        finalBody = transformed.body;
+        finalStatus = transformed.status;
+
+        // Apply transformed headers
+        finalHeaders = new Headers();
+        for (const [key, value] of Object.entries(transformed.headers)) {
+          finalHeaders.set(key, value);
+        }
+      } catch (transformError) {
+        console.error('Response transformation error:', transformError);
+        // Continue with untransformed response
+      }
+    }
+
+    return NextResponse.json(finalBody, {
+      status: finalStatus,
       statusText: upstreamResponse.statusText,
-      headers,
+      headers: finalHeaders,
     });
   } catch (error) {
     console.error('Proxy error:', error);

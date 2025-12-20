@@ -6,8 +6,7 @@ import { decryptApiKey } from '@/lib/utils/crypto';
 import { SystemNotifications } from '@/lib/notifications';
 
 /**
- * POST /api/admin/providers/[id]/test - Test provider connection
- * Makes an actual API call to verify provider is working
+ * POST /api/admin/providers/[id]/test - Test a provider connection
  */
 export async function POST(
   request: NextRequest,

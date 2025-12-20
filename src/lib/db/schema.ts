@@ -7,6 +7,18 @@ export const admins = pgTable('admins', {
   passwordHash: text('password_hash').notNull(),
   name: varchar('name', { length: 255 }),
   isActive: boolean('is_active').notNull().default(true),
+
+  // Two-factor authentication
+  twoFactorEnabled: boolean('two_factor_enabled').notNull().default(false),
+  twoFactorSecret: text('two_factor_secret'), // Encrypted TOTP secret
+
+  // Role-based access control
+  role: varchar('role', { length: 50 }).notNull().default('admin'), // 'super_admin', 'admin', 'viewer'
+  permissions: jsonb('permissions'), // Array of permission strings
+
+  // Organization association
+  organizationId: uuid('organization_id'),
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -32,6 +44,15 @@ export const providers = pgTable('providers', {
     tokensPerDay: 1000000,
   }),
 
+  // Caching configuration
+  cacheEnabled: boolean('cache_enabled').notNull().default(false),
+  cacheTtlSeconds: integer('cache_ttl_seconds').default(300), // 5 minutes default
+
+  // Failover & load balancing
+  priority: integer('priority').notNull().default(0), // Higher priority = preferred provider
+  failoverEnabled: boolean('failover_enabled').notNull().default(true),
+  maxRetries: integer('max_retries').notNull().default(3),
+
   // Metadata
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -39,6 +60,7 @@ export const providers = pgTable('providers', {
   nameIdx: index('providers_name_idx').on(table.name),
   isActiveIdx: index('providers_is_active_idx').on(table.isActive),
   isDefaultIdx: index('providers_is_default_idx').on(table.isDefault),
+  priorityIdx: index('providers_priority_idx').on(table.priority),
   // Note: Only one provider should be default at a time, but this is enforced at application level
 }));
 
@@ -52,6 +74,10 @@ export const apiKeys = pgTable('api_keys', {
   // Configuration - references centralized providers table with cascade delete
   providerId: uuid('provider_id').references(() => providers.id, { onDelete: 'restrict' }).notNull(),
 
+  // Multi-tenancy
+  organizationId: uuid('organization_id'),
+  projectId: uuid('project_id'),
+
   // Legacy fields for backward compatibility (deprecated - will be removed in future version)
   // These fields are no longer used - all API keys should use providerId
   provider: varchar('provider', { length: 50 }), // DEPRECATED: Use providerId instead
@@ -62,6 +88,47 @@ export const apiKeys = pgTable('api_keys', {
   requestsPerDay: integer('requests_per_day').default(1000),
   tokensPerDay: bigint('tokens_per_day', { mode: 'number' }).default(1000000),
   monthlySpendLimitUsd: integer('monthly_spend_limit_usd'), // In USD cents (e.g., 1000 = $10.00)
+
+  // Model-specific rate limits
+  modelRateLimits: jsonb('model_rate_limits'), // { "claude-3-5-sonnet": { requestsPerMinute: 10 } }
+
+  // Key rotation and expiration
+  expiresAt: timestamp('expires_at'),
+  lastRotatedAt: timestamp('last_rotated_at'),
+  rotationCount: integer('rotation_count').notNull().default(0),
+
+  // Scoping - restrict what this key can access
+  scopes: jsonb('scopes'), // { models: ["claude-3-5-sonnet"], endpoints: ["/v1/messages"] }
+  permissions: jsonb('permissions'), // Array of permission strings
+
+  // IP security
+  ipWhitelist: jsonb('ip_whitelist'), // Array of allowed IP addresses/CIDR ranges
+  ipBlacklist: jsonb('ip_blacklist'), // Array of blocked IP addresses/CIDR ranges
+
+  // Request signing (HMAC)
+  hmacEnabled: boolean('hmac_enabled').notNull().default(false),
+  hmacSecret: text('hmac_secret'), // Encrypted HMAC secret for request signing
+
+  // Two-factor authentication
+  totpEnabled: boolean('totp_enabled').notNull().default(false),
+  totpSecret: text('totp_secret'), // Encrypted TOTP secret for 2FA
+
+  // Notification settings
+  emailNotificationsEnabled: boolean('email_notifications_enabled').notNull().default(false),
+  notificationEmail: varchar('notification_email', { length: 255 }),
+  webhookUrl: text('webhook_url'), // Custom webhook for notifications
+  slackWebhook: text('slack_webhook'),
+  discordWebhook: text('discord_webhook'),
+
+  // Alert thresholds (percentage-based)
+  alertThresholds: jsonb('alert_thresholds').default({
+    requestsPerDay: [80, 90],
+    tokensPerDay: [80, 90],
+    monthlySpend: [80, 90],
+  }),
+
+  // Response transformation rules
+  transformationRules: jsonb('transformation_rules'), // Array of TransformationRule objects
 
   // Status
   isActive: boolean('is_active').notNull().default(true),
@@ -77,6 +144,9 @@ export const apiKeys = pgTable('api_keys', {
   keyPrefixIdx: index('key_prefix_idx').on(table.keyPrefix),
   isActiveIdx: index('is_active_idx').on(table.isActive),
   providerIdIdx: index('provider_id_idx').on(table.providerId),
+  organizationIdIdx: index('organization_id_idx').on(table.organizationId),
+  projectIdIdx: index('project_id_idx').on(table.projectId),
+  expiresAtIdx: index('expires_at_idx').on(table.expiresAt),
 }));
 
 // Usage logs table (partitioned by date for performance)
@@ -184,6 +254,107 @@ export const rateLimitCounters = pgTable('rate_limit_counters', {
   expiresAtIdx: index('rate_limit_counters_expires_at_idx').on(table.expiresAt),
 }));
 
+// Organizations table (multi-tenancy)
+export const organizations = pgTable('organizations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  slug: varchar('slug', { length: 100 }).notNull().unique(),
+
+  // Subscription & limits
+  plan: varchar('plan', { length: 50 }).notNull().default('free'), // 'free', 'pro', 'enterprise'
+  maxApiKeys: integer('max_api_keys').default(10),
+  maxUsers: integer('max_users').default(5),
+
+  // Shared quotas
+  sharedQuotas: jsonb('shared_quotas'), // Organization-wide quotas
+
+  // Settings
+  settings: jsonb('settings'), // Organization-specific settings
+
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  slugIdx: uniqueIndex('organizations_slug_idx').on(table.slug),
+  isActiveIdx: index('organizations_is_active_idx').on(table.isActive),
+}));
+
+// Projects table (for grouping API keys)
+export const projects = pgTable('projects', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').references(() => organizations.id, { onDelete: 'cascade' }).notNull(),
+
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+
+  // Shared quotas across keys in this project
+  sharedQuotas: jsonb('shared_quotas'), // { requestsPerDay: 10000, tokensPerDay: 5000000 }
+
+  // Settings
+  settings: jsonb('settings'),
+
+  isActive: boolean('is_active').notNull().default(true),
+  createdBy: uuid('created_by').references(() => admins.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  organizationIdIdx: index('projects_organization_id_idx').on(table.organizationId),
+  isActiveIdx: index('projects_is_active_idx').on(table.isActive),
+}));
+
+// Audit logs table (detailed change tracking)
+export const auditLogs = pgTable('audit_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+
+  // Who performed the action
+  adminId: uuid('admin_id').references(() => admins.id),
+  adminEmail: varchar('admin_email', { length: 255 }),
+
+  // What was affected
+  resourceType: varchar('resource_type', { length: 50 }).notNull(), // 'api_key', 'provider', 'admin', 'organization', etc.
+  resourceId: uuid('resource_id'),
+
+  // What happened
+  action: varchar('action', { length: 50 }).notNull(), // 'create', 'update', 'delete', 'rotate', 'revoke', etc.
+  changes: jsonb('changes'), // { before: {...}, after: {...} }
+
+  // Context
+  ipAddress: varchar('ip_address', { length: 45 }),
+  userAgent: text('user_agent'),
+  metadata: jsonb('metadata'),
+
+  timestamp: timestamp('timestamp').defaultNow().notNull(),
+}, (table) => ({
+  adminIdIdx: index('audit_logs_admin_id_idx').on(table.adminId),
+  resourceTypeIdx: index('audit_logs_resource_type_idx').on(table.resourceType),
+  resourceIdIdx: index('audit_logs_resource_id_idx').on(table.resourceId),
+  timestampIdx: index('audit_logs_timestamp_idx').on(table.timestamp),
+  compositeIdx: index('audit_logs_composite_idx').on(table.resourceType, table.resourceId, table.timestamp),
+}));
+
+// Response cache table (for caching Claude API responses)
+export const responseCache = pgTable('response_cache', {
+  id: uuid('id').defaultRandom().primaryKey(),
+
+  // Cache key (hash of request body + model)
+  cacheKey: text('cache_key').notNull().unique(),
+
+  // Cached response
+  response: jsonb('response').notNull(),
+
+  // Metadata
+  model: varchar('model', { length: 100 }).notNull(),
+  tokensInput: integer('tokens_input').notNull(),
+  tokensOutput: integer('tokens_output').notNull(),
+
+  // TTL
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  cacheKeyIdx: uniqueIndex('response_cache_key_idx').on(table.cacheKey),
+  expiresAtIdx: index('response_cache_expires_at_idx').on(table.expiresAt),
+}));
+
 // Type exports for TypeScript
 export type Admin = typeof admins.$inferSelect;
 export type NewAdmin = typeof admins.$inferInsert;
@@ -205,3 +376,15 @@ export type NewProvider = typeof providers.$inferInsert;
 
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
+
+export type Organization = typeof organizations.$inferSelect;
+export type NewOrganization = typeof organizations.$inferInsert;
+
+export type Project = typeof projects.$inferSelect;
+export type NewProject = typeof projects.$inferInsert;
+
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type NewAuditLog = typeof auditLogs.$inferInsert;
+
+export type ResponseCache = typeof responseCache.$inferSelect;
+export type NewResponseCache = typeof responseCache.$inferInsert;

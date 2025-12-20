@@ -1,0 +1,741 @@
+openapi: 3.1.0
+info:
+  title: Conduit API Gateway
+  version: 1.0.0
+  description: |
+    Conduit is a transparent, edge-first API gateway and proxy for Claude AI.
+
+    ## Features
+    - API Key Management with rotation and expiration
+    - Multi-provider support with automatic failover
+    - Rate limiting and quota enforcement
+    - IP whitelisting and HMAC request signing
+    - Response caching for improved performance
+    - Multi-tenancy with organizations and projects
+    - Comprehensive analytics and cost projections
+    - Audit logging and 2FA authentication
+
+  contact:
+    name: Conduit Support
+    url: https://conduit.dev
+  license:
+    name: MIT
+
+servers:
+  - url: https://api.conduit.dev
+    description: Production server
+  - url: http://localhost:3000
+    description: Development server
+
+tags:
+  - name: Proxy
+    description: Claude API proxy endpoints
+  - name: API Keys
+    description: API key management
+  - name: Organizations
+    description: Organization management
+  - name: Projects
+    description: Project management
+  - name: Providers
+    description: Provider configuration
+  - name: Analytics
+    description: Usage analytics and projections
+  - name: Audit Logs
+    description: Audit trail and activity logs
+  - name: Admin
+    description: Admin user management
+
+paths:
+  /api/claude/{path}:
+    post:
+      tags: [Proxy]
+      summary: Proxy requests to Claude API
+      description: |
+        Transparently forwards requests to the Claude API with authentication,
+        rate limiting, caching, and failover support.
+
+        ## Security Features
+        - API key validation and expiration checks
+        - IP whitelisting/blacklisting
+        - HMAC request signing
+        - Model and endpoint scoping
+
+        ## Performance Features
+        - Response caching (for non-streaming requests)
+        - Automatic failover between providers
+        - Exponential backoff retry logic
+
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Claude API endpoint path (e.g., "v1/messages")
+      security:
+        - ApiKeyAuth: []
+        - HmacAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model:
+                  type: string
+                  example: "claude-3-5-sonnet-20241022"
+                messages:
+                  type: array
+                  items:
+                    type: object
+                max_tokens:
+                  type: integer
+                stream:
+                  type: boolean
+      responses:
+        '200':
+          description: Successful response
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+              description: Rate limit per minute
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+              description: Remaining requests in current window
+            X-Cache:
+              schema:
+                type: string
+                enum: [HIT, MISS]
+              description: Cache status
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Permission error (IP blocked or scope restriction)
+        '429':
+          description: Rate limit exceeded
+        '509':
+          description: Quota exceeded
+
+  /api/admin/keys:
+    get:
+      tags: [API Keys]
+      summary: List API keys
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: organizationId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiKey'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+    post:
+      tags: [API Keys]
+      summary: Create API key
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - providerId
+              properties:
+                name:
+                  type: string
+                providerId:
+                  type: string
+                  format: uuid
+                organizationId:
+                  type: string
+                  format: uuid
+                projectId:
+                  type: string
+                  format: uuid
+                requestsPerMinute:
+                  type: integer
+                requestsPerDay:
+                  type: integer
+                tokensPerDay:
+                  type: integer
+                monthlySpendLimitUsd:
+                  type: integer
+                  description: Spend limit in cents
+                expiresAt:
+                  type: string
+                  format: date-time
+                scopes:
+                  type: object
+                  properties:
+                    models:
+                      type: array
+                      items:
+                        type: string
+                    endpoints:
+                      type: array
+                      items:
+                        type: string
+                ipWhitelist:
+                  type: array
+                  items:
+                    type: string
+                  description: IP addresses or CIDR ranges
+                ipBlacklist:
+                  type: array
+                  items:
+                    type: string
+                hmacEnabled:
+                  type: boolean
+                emailNotificationsEnabled:
+                  type: boolean
+                notificationEmail:
+                  type: string
+                  format: email
+                webhookUrl:
+                  type: string
+                  format: uri
+                slackWebhook:
+                  type: string
+                  format: uri
+                discordWebhook:
+                  type: string
+                  format: uri
+                alertThresholds:
+                  type: object
+                  properties:
+                    requestsPerDay:
+                      type: array
+                      items:
+                        type: integer
+                    tokensPerDay:
+                      type: array
+                      items:
+                        type: integer
+                    monthlySpend:
+                      type: array
+                      items:
+                        type: integer
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: The full API key (only shown once)
+                  keyData:
+                    $ref: '#/components/schemas/ApiKey'
+
+  /api/admin/keys/{id}/rotate:
+    post:
+      tags: [API Keys]
+      summary: Rotate API key
+      description: Generates a new key while preserving all settings
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Key rotated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  newKey:
+                    type: string
+                  rotatedAt:
+                    type: string
+                    format: date-time
+
+  /api/admin/organizations:
+    get:
+      tags: [Organizations]
+      summary: List organizations
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of organizations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  organizations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Organization'
+    post:
+      tags: [Organizations]
+      summary: Create organization
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - slug
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+                  pattern: '^[a-z0-9-]+$'
+                plan:
+                  type: string
+                  enum: [free, pro, enterprise]
+                maxApiKeys:
+                  type: integer
+                maxUsers:
+                  type: integer
+      responses:
+        '201':
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  organization:
+                    $ref: '#/components/schemas/Organization'
+
+  /api/admin/projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: organizationId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Project'
+    post:
+      tags: [Projects]
+      summary: Create project
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - organizationId
+                - name
+              properties:
+                organizationId:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                description:
+                  type: string
+                sharedQuotas:
+                  type: object
+      responses:
+        '201':
+          description: Project created
+
+  /api/admin/analytics/projections:
+    get:
+      tags: [Analytics]
+      summary: Get cost projections
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: apiKeyId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Cost projection data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostProjection'
+
+  /api/admin/analytics/errors:
+    get:
+      tags: [Analytics]
+      summary: Get error rate statistics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: apiKeyId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 7
+      responses:
+        '200':
+          description: Error rate statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalRequests:
+                    type: integer
+                  successfulRequests:
+                    type: integer
+                  failedRequests:
+                    type: integer
+                  errorRate:
+                    type: number
+                    format: float
+                  errorsByCode:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        statusCode:
+                          type: integer
+                        count:
+                          type: integer
+
+  /api/admin/analytics/latency:
+    get:
+      tags: [Analytics]
+      summary: Get latency statistics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: apiKeyId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 7
+      responses:
+        '200':
+          description: Latency statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  averageLatencyMs:
+                    type: integer
+                  medianLatencyMs:
+                    type: integer
+                  p95LatencyMs:
+                    type: integer
+                  p99LatencyMs:
+                    type: integer
+                  minLatencyMs:
+                    type: integer
+                  maxLatencyMs:
+                    type: integer
+
+  /api/admin/audit-logs:
+    get:
+      tags: [Audit Logs]
+      summary: Get audit logs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: resourceType
+          in: query
+          schema:
+            type: string
+        - name: resourceId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: adminId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLog'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Conduit API key (sk-cond_...)
+    HmacAuth:
+      type: apiKey
+      in: header
+      name: x-signature
+      description: HMAC signature for request signing
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Admin session token
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            type:
+              type: string
+            message:
+              type: string
+
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        keyPrefix:
+          type: string
+          example: "sk-cond_abc"
+        name:
+          type: string
+        providerId:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        requestsPerMinute:
+          type: integer
+        requestsPerDay:
+          type: integer
+        tokensPerDay:
+          type: integer
+        monthlySpendLimitUsd:
+          type: integer
+        expiresAt:
+          type: string
+          format: date-time
+        lastRotatedAt:
+          type: string
+          format: date-time
+        rotationCount:
+          type: integer
+        scopes:
+          type: object
+        ipWhitelist:
+          type: array
+          items:
+            type: string
+        ipBlacklist:
+          type: array
+          items:
+            type: string
+        hmacEnabled:
+          type: boolean
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        plan:
+          type: string
+          enum: [free, pro, enterprise]
+        maxApiKeys:
+          type: integer
+        maxUsers:
+          type: integer
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        sharedQuotas:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+
+    CostProjection:
+      type: object
+      properties:
+        currentSpend:
+          type: integer
+          description: Current month spend in cents
+        projectedMonthlySpend:
+          type: integer
+          description: Projected end-of-month spend in cents
+        projectedDailyAverage:
+          type: integer
+          description: Daily average spend in cents
+        trend:
+          type: string
+          enum: [increasing, decreasing, stable]
+        percentageChange:
+          type: number
+          description: Percentage change vs previous month
+        daysInPeriod:
+          type: integer
+        estimatedEndOfMonthSpend:
+          type: integer
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        adminId:
+          type: string
+          format: uuid
+        adminEmail:
+          type: string
+        resourceType:
+          type: string
+        resourceId:
+          type: string
+          format: uuid
+        action:
+          type: string
+        changes:
+          type: object
+        ipAddress:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        pages:
+          type: integer
