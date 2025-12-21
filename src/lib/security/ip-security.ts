@@ -34,10 +34,14 @@ function matchesIpPattern(ip: string, pattern: string): boolean {
  */
 function isIpInCidr(ip: string, cidr: string): boolean {
   const [range, bits] = cidr.split('/');
-  const mask = ~(2 ** (32 - parseInt(bits)) - 1);
+  const prefixLength = parseInt(bits, 10);
 
-  const ipNum = ipToNumber(ip);
-  const rangeNum = ipToNumber(range);
+  // Create mask using bit shifting to avoid integer overflow
+  // Force unsigned 32-bit integer
+  const mask = ((-1 << (32 - prefixLength)) >>> 0);
+
+  const ipNum = ipToNumber(ip) >>> 0; // Force unsigned
+  const rangeNum = ipToNumber(range) >>> 0; // Force unsigned
 
   return (ipNum & mask) === (rangeNum & mask);
 }
@@ -53,17 +57,25 @@ function ipToNumber(ip: string): number {
 
 /**
  * Validates if an IP address is allowed based on whitelist/blacklist
- * @param ip - The IP address to validate
+ * @param ip - The IP address to validate (null if cannot be determined)
  * @param apiKey - The API key object with security settings
  * @returns Object with validation result
  */
 export function validateIpAccess(
-  ip: string,
+  ip: string | null,
   apiKey: Pick<ApiKey, 'ipWhitelist' | 'ipBlacklist'>
 ): {
   allowed: boolean;
   reason?: string;
 } {
+  // If IP cannot be determined, fail closed (reject request)
+  if (!ip) {
+    return {
+      allowed: false,
+      reason: 'Unable to determine client IP address',
+    };
+  }
+
   const whitelist = apiKey.ipWhitelist as string[] | null;
   const blacklist = apiKey.ipBlacklist as string[] | null;
 
@@ -95,9 +107,9 @@ export function validateIpAccess(
 /**
  * Extracts the client IP address from a request
  * @param request - The incoming request
- * @returns The client IP address
+ * @returns The client IP address, or null if not found
  */
-export function getClientIp(request: Request): string {
+export function getClientIp(request: Request): string | null {
   // Check common headers for forwarded IPs (in order of preference)
   const headers = request.headers;
 
@@ -117,8 +129,8 @@ export function getClientIp(request: Request): string {
     return cfConnectingIp.trim();
   }
 
-  // Fallback (though this might not be available in Edge runtime)
-  return 'unknown';
+  // Unable to determine client IP
+  return null;
 }
 
 /**

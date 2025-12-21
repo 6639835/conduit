@@ -3,9 +3,28 @@ import { db } from '@/lib/db';
 import { apiKeys, providers } from '@/lib/db/schema';
 import { generateApiKey } from '@/lib/auth/api-key';
 import { desc, eq, sql } from 'drizzle-orm';
-import type { CreateApiKeyRequest, CreateApiKeyResponse, ListApiKeysResponse } from '@/types';
+import type { CreateApiKeyResponse, ListApiKeysResponse } from '@/types';
 import { SystemNotifications } from '@/lib/notifications';
 import { auth } from '@/lib/auth';
+import { z } from 'zod';
+
+// Validation schema for creating API keys
+const createApiKeySchema = z.object({
+  name: z.string().max(255).optional(),
+  provider: z.string().uuid('Invalid provider ID format'),
+  requestsPerMinute: z.number().int().positive().optional(),
+  requestsPerDay: z.number().int().positive().optional(),
+  tokensPerDay: z.number().int().positive().optional(),
+  monthlySpendLimitUsd: z.number().positive().optional(),
+  expiresAt: z.string().datetime().optional(),
+  ipWhitelist: z.array(z.string().ip()).optional(),
+  ipBlacklist: z.array(z.string().ip()).optional(),
+  allowedModels: z.array(z.string()).optional(),
+  allowedEndpoints: z.array(z.string()).optional(),
+  organizationId: z.string().uuid().optional().nullable(),
+  projectId: z.string().uuid().optional().nullable(),
+  metadata: z.record(z.string(), z.unknown()).optional().nullable(),
+});
 
 /**
  * POST /api/admin/keys - Create a new API key
@@ -25,18 +44,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body: CreateApiKeyRequest = await request.json();
+    // Parse and validate request body
+    const rawBody = await request.json();
+    const validationResult = createApiKeySchema.safeParse(rawBody);
 
-    // Validate required fields
-    if (!body.provider) {
+    if (!validationResult.success) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Missing required field: provider',
+          error: 'Invalid request data: ' + validationResult.error.issues.map(i => i.message).join(', '),
         } as CreateApiKeyResponse,
         { status: 400 }
       );
     }
+
+    const body = validationResult.data;
 
     // Verify provider exists and is active
     const [providerRecord] = await db

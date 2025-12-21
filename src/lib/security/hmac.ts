@@ -1,6 +1,24 @@
 import { decrypt } from '../utils/crypto';
 
 /**
+ * Constant-time string comparison to prevent timing attacks
+ * @param a - First string
+ * @param b - Second string
+ * @returns True if strings are equal
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+/**
  * Generates an HMAC signature for a request using Web Crypto API
  * @param secret - The HMAC secret (encrypted in DB)
  * @param method - HTTP method
@@ -82,9 +100,8 @@ export async function verifyHmacSignature(
       body
     );
 
-    // Simple comparison (Web Crypto doesn't have timingSafeEqual)
-    // In edge runtime, timing attacks are less of a concern due to distributed nature
-    if (providedSignature !== expectedSignature) {
+    // Use constant-time comparison to prevent timing attacks
+    if (!timingSafeEqual(providedSignature, expectedSignature)) {
       return {
         valid: false,
         reason: 'Invalid signature',

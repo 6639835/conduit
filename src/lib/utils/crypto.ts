@@ -15,6 +15,29 @@ if (!/^[0-9a-fA-F]{64}$/.test(ENCRYPTION_KEY_HEX)) {
   throw new Error('API_KEY_ENCRYPTION_KEY must be exactly 64 hexadecimal characters (256 bits)');
 }
 
+// Validate key entropy (prevent weak keys like all zeros or repeated patterns)
+function validateKeyEntropy(hexKey: string): void {
+  // Check for all zeros or all same character
+  if (/^(.)\1*$/.test(hexKey)) {
+    throw new Error('API_KEY_ENCRYPTION_KEY has insufficient entropy (all same character)');
+  }
+
+  // Count unique characters (should have reasonable diversity)
+  const uniqueChars = new Set(hexKey.toLowerCase()).size;
+  if (uniqueChars < 8) {
+    throw new Error('API_KEY_ENCRYPTION_KEY has insufficient entropy (too few unique characters)');
+  }
+
+  // Check for simple patterns (e.g., "0123456789abcdef" repeated)
+  const firstQuarter = hexKey.substring(0, 16);
+  const repeatedPattern = firstQuarter.repeat(4);
+  if (hexKey.toLowerCase() === repeatedPattern.toLowerCase()) {
+    throw new Error('API_KEY_ENCRYPTION_KEY has insufficient entropy (repeated pattern detected)');
+  }
+}
+
+validateKeyEntropy(ENCRYPTION_KEY_HEX);
+
 /**
  * Get the encryption key as CryptoKey
  */

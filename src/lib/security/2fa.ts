@@ -1,13 +1,13 @@
-import crypto from 'crypto';
 import { encrypt, decrypt } from '../utils/crypto';
 
 /**
- * Generates a random TOTP secret
+ * Generates a random TOTP secret using Web Crypto API
  * @returns Base32 encoded secret
  */
 export function generateTotpSecret(): string {
-  const buffer = crypto.randomBytes(20);
-  return base32Encode(buffer);
+  const array = new Uint8Array(20);
+  crypto.getRandomValues(array);
+  return base32Encode(array);
 }
 
 /**
@@ -17,20 +17,34 @@ export function generateTotpSecret(): string {
  * @param time - Time to generate code for (default: current time)
  * @returns 6-digit TOTP code
  */
-export function generateTotpCode(
+export async function generateTotpCode(
   secret: string,
   timeStep: number = 30,
   time: number = Date.now()
-): string {
+): Promise<string> {
   const counter = Math.floor(time / 1000 / timeStep);
-  const buffer = Buffer.alloc(8);
-  buffer.writeBigInt64BE(BigInt(counter));
+
+  // Create counter buffer (8 bytes, big-endian)
+  const counterBuffer = new ArrayBuffer(8);
+  const view = new DataView(counterBuffer);
+  view.setBigUint64(0, BigInt(counter), false); // false = big-endian
 
   const key = base32Decode(secret);
-  const hmac = crypto.createHmac('sha1', key);
-  hmac.update(buffer);
-  const hash = hmac.digest();
 
+  // Import key for HMAC
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    key,
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign']
+  );
+
+  // Generate HMAC
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, counterBuffer);
+  const hash = new Uint8Array(signature);
+
+  // Dynamic truncation
   const offset = hash[hash.length - 1] & 0xf;
   const code =
     ((hash[offset] & 0x7f) << 24) |
@@ -48,17 +62,17 @@ export function generateTotpCode(
  * @param window - Number of time steps to check (allows for clock drift)
  * @returns true if code is valid
  */
-export function verifyTotpCode(
+export async function verifyTotpCode(
   secret: string,
   code: string,
   window: number = 1
-): boolean {
+): Promise<boolean> {
   const now = Date.now();
   const timeStep = 30 * 1000; // 30 seconds in milliseconds
 
   for (let i = -window; i <= window; i++) {
     const testTime = now + i * timeStep;
-    const expectedCode = generateTotpCode(secret, 30, testTime);
+    const expectedCode = await generateTotpCode(secret, 30, testTime);
 
     if (code === expectedCode) {
       return true;
@@ -86,7 +100,7 @@ export function generateTotpUri(
 }
 
 /**
- * Generates backup codes for 2FA
+ * Generates backup codes for 2FA using Web Crypto API
  * @param count - Number of backup codes to generate
  * @returns Array of backup codes
  */
@@ -94,9 +108,14 @@ export function generateBackupCodes(count: number = 10): string[] {
   const codes: string[] = [];
 
   for (let i = 0; i < count; i++) {
-    const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const array = new Uint8Array(4);
+    crypto.getRandomValues(array);
+    const hex = Array.from(array)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+      .toUpperCase();
     // Format as XXXX-XXXX
-    codes.push(`${code.slice(0, 4)}-${code.slice(4)}`);
+    codes.push(`${hex.slice(0, 4)}-${hex.slice(4)}`);
   }
 
   return codes;
@@ -105,7 +124,7 @@ export function generateBackupCodes(count: number = 10): string[] {
 /**
  * Base32 encoding (without padding)
  */
-function base32Encode(buffer: Buffer): string {
+function base32Encode(buffer: Uint8Array): string {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   let bits = 0;
   let value = 0;
@@ -131,12 +150,12 @@ function base32Encode(buffer: Buffer): string {
 /**
  * Base32 decoding
  */
-function base32Decode(input: string): Buffer {
+function base32Decode(input: string): Uint8Array {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   let bits = 0;
   let value = 0;
   let index = 0;
-  const output = Buffer.alloc(Math.ceil((input.length * 5) / 8));
+  const output = new Uint8Array(Math.ceil((input.length * 5) / 8));
 
   for (let i = 0; i < input.length; i++) {
     const idx = alphabet.indexOf(input[i].toUpperCase());

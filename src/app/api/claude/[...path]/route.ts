@@ -14,9 +14,37 @@ import { verifyHmacSignature, extractHmacHeaders } from '@/lib/security/hmac';
 import { isKeyExpired } from '@/lib/key-rotation';
 import { getCachedResponse, setCachedResponse, generateCacheKey, isCacheable } from '@/lib/cache';
 import { transformResponse, type TransformationRule } from '@/lib/proxy/response-transformer';
+import { unstable_cache } from 'next/cache';
+import { z } from 'zod';
 
 // Configure edge runtime for global distribution
 export const runtime = 'edge';
+
+// Validation schema for API key scopes
+const scopesSchema = z.object({
+  models: z.array(z.string()).optional(),
+  endpoints: z.array(z.string()).optional(),
+}).nullable();
+
+/**
+ * Cached provider fetcher to reduce database queries
+ * Providers are static data that rarely change
+ */
+const getCachedProvider = unstable_cache(
+  async (providerId: string) => {
+    const [provider] = await db
+      .select()
+      .from(providers)
+      .where(eq(providers.id, providerId))
+      .limit(1);
+    return provider;
+  },
+  ['provider-by-id'],
+  {
+    revalidate: 300, // Cache for 5 minutes
+    tags: ['providers'],
+  }
+);
 
 /**
  * Catch-all proxy route: /api/claude/[...path]
@@ -159,10 +187,25 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
 
     // Scope validation (model and endpoint restrictions)
     if (apiKey.scopes) {
-      const scopes = apiKey.scopes as { models?: string[]; endpoints?: string[] };
+      // Validate scopes structure at runtime
+      const scopesValidation = scopesSchema.safeParse(apiKey.scopes);
+      if (!scopesValidation.success) {
+        console.error('Invalid scopes format for API key:', apiKey.id);
+        return NextResponse.json(
+          {
+            error: {
+              type: 'configuration_error',
+              message: 'Invalid API key scopes configuration',
+            },
+          },
+          { status: 500 }
+        );
+      }
+
+      const scopes = scopesValidation.data;
 
       // Check endpoint restriction
-      if (scopes.endpoints && scopes.endpoints.length > 0) {
+      if (scopes && scopes.endpoints && scopes.endpoints.length > 0) {
         const allowed = scopes.endpoints.some((endpoint) => path.startsWith(endpoint));
         if (!allowed) {
           return NextResponse.json(
@@ -178,7 +221,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
 
       // Check model restriction (will be verified after parsing request body)
-      if (body && scopes.models && scopes.models.length > 0) {
+      if (body && scopes && scopes.models && scopes.models.length > 0) {
         const requestedModel = body.model;
         if (requestedModel && !scopes.models.includes(requestedModel)) {
           return NextResponse.json(
@@ -194,12 +237,8 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    // Fetch provider for this API key
-    const [provider] = await db
-      .select()
-      .from(providers)
-      .where(eq(providers.id, apiKey.providerId))
-      .limit(1);
+    // Fetch provider for this API key (with caching)
+    const provider = await getCachedProvider(apiKey.providerId);
 
     if (!provider) {
       return NextResponse.json(

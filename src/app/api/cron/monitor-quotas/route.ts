@@ -17,15 +17,22 @@ const CRON_SECRET = process.env.CRON_SECRET;
  */
 export async function POST(request: NextRequest) {
   try {
-    // Verify cron secret if configured
-    if (CRON_SECRET) {
-      const authHeader = request.headers.get('authorization');
-      if (authHeader !== `Bearer ${CRON_SECRET}`) {
-        return NextResponse.json(
-          { success: false, error: 'Unauthorized' },
-          { status: 401 }
-        );
-      }
+    // Verify cron secret
+    const authHeader = request.headers.get('authorization');
+
+    if (!CRON_SECRET) {
+      console.error('CRON_SECRET environment variable is not configured');
+      return NextResponse.json(
+        { success: false, error: 'Service misconfigured' },
+        { status: 500 }
+      );
+    }
+
+    if (authHeader !== `Bearer ${CRON_SECRET}`) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
     }
 
     const now = new Date();
