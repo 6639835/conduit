@@ -22,6 +22,7 @@ export async function PATCH(
     };
 
     if (body.name !== undefined) updates.name = body.name;
+    if (body.providerSelectionStrategy !== undefined) updates.providerSelectionStrategy = body.providerSelectionStrategy;
     if (body.requestsPerMinute !== undefined) updates.requestsPerMinute = body.requestsPerMinute;
     if (body.requestsPerDay !== undefined) updates.requestsPerDay = body.requestsPerDay;
     if (body.tokensPerDay !== undefined) updates.tokensPerDay = body.tokensPerDay;

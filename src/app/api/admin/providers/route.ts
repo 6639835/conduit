@@ -9,6 +9,7 @@ export interface CreateProviderRequest {
   type: 'official' | 'bedrock' | 'custom';
   endpoint?: string;
   apiKey: string;
+  costMultiplier?: number;
   defaultRateLimits?: {
     requestsPerMinute: number;
     requestsPerDay: number;
@@ -128,6 +129,7 @@ export async function POST(request: NextRequest) {
         type: body.type,
         endpoint,
         apiKey: encryptedApiKey,
+        costMultiplier: body.costMultiplier !== undefined ? String(body.costMultiplier) : '1.00',
         isActive: true,
         isDefault: isFirstProvider, // First provider becomes default
         status: 'unknown',

@@ -1,7 +1,9 @@
 import { db } from '../db';
-import { providers } from '../db/schema';
+import { providers, type Provider as ProviderSchema, type ApiKey } from '../db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { decrypt } from '../utils/crypto';
+import { proxyToClaudeOfficial } from './claude-official';
+import { incrementProviderLoad, decrementProviderLoad } from './load-tracker';
 
 export interface Provider {
   id: string;
@@ -239,4 +241,87 @@ export async function makeProxyRequest(
 
     return response;
   });
+}
+
+/**
+ * Makes a proxy request with strategy-selected providers
+ * Integrates with load tracking and failover logic
+ * @param apiKey - API key making the request
+ * @param providers - Strategy-selected providers (ordered by preference)
+ * @param path - Request path
+ * @param method - HTTP method
+ * @param headers - Request headers
+ * @param body - Request body
+ * @returns Response from successful provider
+ */
+export async function makeProxyRequestWithStrategy(
+  apiKey: ApiKey,
+  providers: ProviderSchema[],
+  path: string,
+  method: string,
+  headers: Headers,
+  body?: unknown
+): Promise<Response> {
+  if (providers.length === 0) {
+    throw new Error('No providers available');
+  }
+
+  let lastError: Error | undefined;
+
+  for (let i = 0; i < providers.length; i++) {
+    const provider = providers[i];
+
+    // Track load for least-loaded strategy
+    await incrementProviderLoad(provider.id);
+
+    try {
+      // Try the request with retry logic
+      const response = await withRetry(
+        async () => {
+          return await proxyToClaudeOfficial({
+            apiKey,
+            provider,
+            path,
+            method,
+            headers,
+            body,
+          });
+        },
+        provider.maxRetries || 3,
+        (attempt, error) => {
+          console.log(
+            `[Failover] Retry attempt ${attempt + 1}/${provider.maxRetries} for provider ${provider.name}:`,
+            error.message
+          );
+        }
+      );
+
+      // Success - decrement load and return
+      await decrementProviderLoad(provider.id);
+      return response;
+    } catch (error) {
+      // Request failed - decrement load
+      await decrementProviderLoad(provider.id);
+
+      const err = error as Error;
+      lastError = err;
+      console.error(
+        `[Failover] Provider ${provider.name} (${provider.id}) failed after retries:`,
+        err.message
+      );
+
+      // If this is not the last provider and failover is enabled, try next
+      if (i < providers.length - 1 && provider.failoverEnabled) {
+        console.log(
+          `[Failover] Failing over to next provider: ${providers[i + 1].name}`
+        );
+        continue;
+      }
+
+      // If failover is disabled or this is the last provider, throw error
+      throw error;
+    }
+  }
+
+  throw lastError || new Error('All providers failed');
 }

@@ -9,6 +9,7 @@ export interface UpdateProviderRequest {
   type?: 'official' | 'bedrock' | 'custom';
   endpoint?: string;
   apiKey?: string;
+  costMultiplier?: number;
   isActive?: boolean;
   isDefault?: boolean;
   status?: 'healthy' | 'unhealthy' | 'unknown';
@@ -152,6 +153,11 @@ export async function PATCH(
     // Update default rate limits if provided
     if (body.defaultRateLimits !== undefined) {
       updateData.defaultRateLimits = body.defaultRateLimits;
+    }
+
+    // Update cost multiplier if provided
+    if (body.costMultiplier !== undefined) {
+      updateData.costMultiplier = String(body.costMultiplier);
     }
 
     // Execute update

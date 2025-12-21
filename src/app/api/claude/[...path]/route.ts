@@ -16,6 +16,8 @@ import { getCachedResponse, setCachedResponse, generateCacheKey, isCacheable } f
 import { transformResponse, type TransformationRule } from '@/lib/proxy/response-transformer';
 import { unstable_cache } from 'next/cache';
 import { z } from 'zod';
+import { selectProvidersForRequest } from '@/lib/proxy/provider-selector';
+import { makeProxyRequestWithStrategy } from '@/lib/proxy/failover';
 
 // Configure edge runtime for global distribution
 export const runtime = 'edge';
@@ -237,32 +239,24 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    // Fetch provider for this API key (with caching)
-    const provider = await getCachedProvider(apiKey.providerId);
+    // Select providers based on API key strategy (multi-provider support)
+    const requestedModel = body && typeof body === 'object' && 'model' in body ? (body.model as string) : undefined;
+    const selectedProviders = await selectProvidersForRequest(apiKey, requestedModel);
 
-    if (!provider) {
+    if (!selectedProviders || selectedProviders.length === 0) {
       return NextResponse.json(
         {
           error: {
             type: 'configuration_error',
-            message: 'Provider not found for this API key',
-          },
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!provider.isActive) {
-      return NextResponse.json(
-        {
-          error: {
-            type: 'configuration_error',
-            message: 'Provider is not active',
+            message: 'No available providers for this API key. Please contact support.',
           },
         },
         { status: 503 }
       );
     }
+
+    // Get first provider for cache check (cache settings might vary by provider)
+    const primaryProvider = selectedProviders[0];
 
     // Check rate limits
     const rateLimitResult = await checkRateLimit(apiKey);
@@ -277,7 +271,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     }
 
     // Check cache for non-streaming requests
-    if (body && provider.cacheEnabled && isCacheable(body)) {
+    if (body && primaryProvider.cacheEnabled && isCacheable(body)) {
       const cacheKey = await generateCacheKey(body.model || 'claude-3-5-sonnet-20241022', body);
       const cachedResponse = await getCachedResponse(cacheKey);
 
@@ -297,15 +291,15 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    // Forward request to Claude API
-    const upstreamResponse = await proxyToClaudeOfficial({
+    // Forward request to Claude API with failover support
+    const upstreamResponse = await makeProxyRequestWithStrategy(
       apiKey,
-      provider,
+      selectedProviders,
       path,
-      method: request.method,
-      headers: request.headers,
-      body,
-    });
+      request.method,
+      request.headers,
+      body
+    );
 
     // Calculate latency
     const latencyMs = Date.now() - startTime;

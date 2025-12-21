@@ -7,11 +7,17 @@ import type { CreateApiKeyResponse, ListApiKeysResponse } from '@/types';
 import { SystemNotifications } from '@/lib/notifications';
 import { auth } from '@/lib/auth';
 import { z } from 'zod';
+import { setProviderPool } from '@/lib/proxy/provider-pool';
 
 // Validation schema for creating API keys
 const createApiKeySchema = z.object({
   name: z.string().max(255).optional(),
-  provider: z.string().uuid('Invalid provider ID format'),
+  provider: z.string().uuid('Invalid provider ID format').optional(), // Optional now for multi-provider
+  providerSelectionStrategy: z.enum(['single', 'priority', 'round-robin', 'least-loaded', 'cost-optimized']).default('single'),
+  providerIds: z.array(z.object({
+    providerId: z.string().uuid(),
+    priority: z.number().int().default(0).optional(),
+  })).optional(), // For multi-provider pool
   requestsPerMinute: z.number().int().positive().optional(),
   requestsPerDay: z.number().int().positive().optional(),
   tokensPerDay: z.number().int().positive().optional(),
@@ -60,31 +66,71 @@ export async function POST(request: NextRequest) {
 
     const body = validationResult.data;
 
-    // Verify provider exists and is active
-    const [providerRecord] = await db
-      .select()
-      .from(providers)
-      .where(eq(providers.id, body.provider))
-      .limit(1);
-
-    if (!providerRecord) {
+    // Validate: Either provider (single) or providerIds (multi) must be provided
+    if (!body.provider && (!body.providerIds || body.providerIds.length === 0)) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Provider not found',
-        } as CreateApiKeyResponse,
-        { status: 404 }
-      );
-    }
-
-    if (!providerRecord.isActive) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Provider is not active',
+          error: 'Either provider or providerIds must be specified',
         } as CreateApiKeyResponse,
         { status: 400 }
       );
+    }
+
+    // Determine primary provider for backward compatibility
+    let primaryProviderId: string;
+    let providerRecord;
+
+    if (body.provider) {
+      // Single provider mode (backward compatibility)
+      primaryProviderId = body.provider;
+      const [record] = await db
+        .select()
+        .from(providers)
+        .where(eq(providers.id, body.provider))
+        .limit(1);
+
+      if (!record) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Provider not found',
+          } as CreateApiKeyResponse,
+          { status: 404 }
+        );
+      }
+
+      if (!record.isActive) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Provider is not active',
+          } as CreateApiKeyResponse,
+          { status: 400 }
+        );
+      }
+
+      providerRecord = record;
+    } else {
+      // Multi-provider mode
+      primaryProviderId = body.providerIds![0].providerId;
+      const [record] = await db
+        .select()
+        .from(providers)
+        .where(eq(providers.id, primaryProviderId))
+        .limit(1);
+
+      if (!record) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Primary provider not found',
+          } as CreateApiKeyResponse,
+          { status: 404 }
+        );
+      }
+
+      providerRecord = record;
     }
 
     // Generate API key
@@ -97,7 +143,8 @@ export async function POST(request: NextRequest) {
         keyHash,
         keyPrefix,
         name: body.name || null,
-        providerId: body.provider, // Now using providerId
+        providerId: primaryProviderId, // Primary provider for backward compatibility
+        providerSelectionStrategy: body.providerSelectionStrategy || 'single',
         requestsPerMinute: body.requestsPerMinute || 60,
         requestsPerDay: body.requestsPerDay || 1000,
         tokensPerDay: body.tokensPerDay || 1000000,
@@ -116,6 +163,15 @@ export async function POST(request: NextRequest) {
         projectId: body.projectId || null,
       })
       .returning();
+
+    // Set provider pool (junction table)
+    if (body.providerIds && body.providerIds.length > 0) {
+      // Multi-provider mode: set full pool
+      await setProviderPool(newApiKey.id, body.providerIds);
+    } else {
+      // Single provider mode: add single provider to pool for consistency
+      await setProviderPool(newApiKey.id, [{ providerId: primaryProviderId, priority: 0 }]);
+    }
 
     // Send notification to the admin who created the key
     await SystemNotifications.apiKeyCreated(

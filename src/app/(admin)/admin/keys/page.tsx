@@ -70,6 +70,8 @@ export default function AdminKeysPage() {
   const [formData, setFormData] = useState({
     name: '',
     provider: '',
+    providerSelectionStrategy: 'single' as 'single' | 'priority' | 'round-robin' | 'least-loaded' | 'cost-optimized',
+    selectedProviders: [] as Array<{ providerId: string; priority: number }>,
     requestsPerMinute: 60,
     requestsPerDay: 1000,
     tokensPerDay: 1000000,
@@ -138,9 +140,21 @@ export default function AdminKeysPage() {
     setSubmitting(true);
 
     try {
+      // Prepare provider data based on strategy
+      const providerData: Record<string, unknown> = {};
+
+      if (formData.providerSelectionStrategy === 'single') {
+        // Single provider mode (backward compatible)
+        providerData.provider = formData.provider;
+      } else {
+        // Multi-provider mode
+        providerData.providerIds = formData.selectedProviders;
+      }
+
       // Prepare the payload with proper formatting
       const payload = {
         ...formData,
+        ...providerData,
         expiresAt: formData.expiresAt ? new Date(formData.expiresAt).toISOString() : null,
         ipWhitelist: formData.ipWhitelist ? formData.ipWhitelist.split('\n').filter(Boolean) : null,
         ipBlacklist: formData.ipBlacklist ? formData.ipBlacklist.split('\n').filter(Boolean) : null,

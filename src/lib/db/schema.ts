@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, bigint, boolean, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, integer, bigint, boolean, jsonb, index, uniqueIndex, decimal } from 'drizzle-orm/pg-core';
 
 // Admin users table (minimal - only for dashboard access)
 export const admins = pgTable('admins', {
@@ -53,6 +53,9 @@ export const providers = pgTable('providers', {
   failoverEnabled: boolean('failover_enabled').notNull().default(true),
   maxRetries: integer('max_retries').notNull().default(3),
 
+  // Cost optimization
+  costMultiplier: decimal('cost_multiplier', { precision: 10, scale: 2 }).notNull().default('1.00'), // For cost-optimized strategy (1.0 = baseline, 0.8 = 20% cheaper)
+
   // Metadata
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -64,6 +67,20 @@ export const providers = pgTable('providers', {
   // Note: Only one provider should be default at a time, but this is enforced at application level
 }));
 
+// API Key Providers junction table (many-to-many relationship)
+export const apiKeyProviders = pgTable('api_key_providers', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  apiKeyId: uuid('api_key_id').references(() => apiKeys.id, { onDelete: 'cascade' }).notNull(),
+  providerId: uuid('provider_id').references(() => providers.id, { onDelete: 'cascade' }).notNull(),
+  priority: integer('priority').notNull().default(0), // Per-key provider priority
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  uniquePair: uniqueIndex('api_key_providers_unique_pair').on(table.apiKeyId, table.providerId),
+  apiKeyIdIdx: index('api_key_providers_api_key_id_idx').on(table.apiKeyId),
+  providerIdIdx: index('api_key_providers_provider_id_idx').on(table.providerId),
+}));
+
 // API keys table
 export const apiKeys = pgTable('api_keys', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -73,6 +90,9 @@ export const apiKeys = pgTable('api_keys', {
 
   // Configuration - references centralized providers table with cascade delete
   providerId: uuid('provider_id').references(() => providers.id, { onDelete: 'restrict' }).notNull(),
+
+  // Provider selection strategy for multi-provider support
+  providerSelectionStrategy: varchar('provider_selection_strategy', { length: 30 }).notNull().default('single'), // 'single', 'priority', 'round-robin', 'least-loaded', 'cost-optimized'
 
   // Multi-tenancy
   organizationId: uuid('organization_id'),
@@ -388,3 +408,6 @@ export type NewAuditLog = typeof auditLogs.$inferInsert;
 
 export type ResponseCache = typeof responseCache.$inferSelect;
 export type NewResponseCache = typeof responseCache.$inferInsert;
+
+export type ApiKeyProvider = typeof apiKeyProviders.$inferSelect;
+export type NewApiKeyProvider = typeof apiKeyProviders.$inferInsert;
