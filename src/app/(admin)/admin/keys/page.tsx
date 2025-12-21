@@ -533,9 +533,116 @@ export default function AdminKeysPage() {
                       </>
                     )}
                   </Select>
+
+                  <Select
+                    label="Provider Selection Strategy"
+                    value={formData.providerSelectionStrategy}
+                    onChange={(e) => {
+                      const strategy = e.target.value as typeof formData.providerSelectionStrategy;
+                      setFormData({
+                        ...formData,
+                        providerSelectionStrategy: strategy,
+                        selectedProviders: strategy === 'single' ? [] : formData.selectedProviders,
+                      });
+                    }}
+                  >
+                    <option value="single">Single Provider (Default)</option>
+                    <option value="priority">Priority-based (Failover)</option>
+                    <option value="round-robin">Round Robin (Load Balance)</option>
+                    <option value="least-loaded">Least Loaded (Dynamic)</option>
+                    <option value="cost-optimized">Cost Optimized (Cheapest)</option>
+                  </Select>
                 </div>
 
-                {providers.length > 0 && formData.provider && (
+                {/* Multi-Provider Selection */}
+                {formData.providerSelectionStrategy !== 'single' && providers.length > 0 && (
+                  <div className="space-y-4">
+                    <AlertCard variant="info">
+                      <div className="space-y-2">
+                        <p className="font-medium">
+                          {formData.providerSelectionStrategy === 'priority' && 'Priority-based Selection'}
+                          {formData.providerSelectionStrategy === 'round-robin' && 'Round-robin Selection'}
+                          {formData.providerSelectionStrategy === 'least-loaded' && 'Least-loaded Selection'}
+                          {formData.providerSelectionStrategy === 'cost-optimized' && 'Cost-optimized Selection'}
+                        </p>
+                        <p className="text-sm">
+                          {formData.providerSelectionStrategy === 'priority' && 'Uses highest priority healthy provider first, fails over to lower priority on errors.'}
+                          {formData.providerSelectionStrategy === 'round-robin' && 'Distributes requests evenly across all selected providers.'}
+                          {formData.providerSelectionStrategy === 'least-loaded' && 'Selects provider with fewest active requests for optimal load balancing.'}
+                          {formData.providerSelectionStrategy === 'cost-optimized' && 'Chooses the cheapest provider based on cost multiplier settings.'}
+                        </p>
+                      </div>
+                    </AlertCard>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Select Providers</label>
+                      {providers.map((provider) => {
+                        const isSelected = formData.selectedProviders.some(sp => sp.providerId === provider.id);
+                        const selectedProvider = formData.selectedProviders.find(sp => sp.providerId === provider.id);
+
+                        return (
+                          <div key={provider.id} className="flex items-center gap-4 p-3 border rounded-lg">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFormData({
+                                    ...formData,
+                                    selectedProviders: [
+                                      ...formData.selectedProviders,
+                                      { providerId: provider.id, priority: 0 }
+                                    ],
+                                  });
+                                } else {
+                                  setFormData({
+                                    ...formData,
+                                    selectedProviders: formData.selectedProviders.filter(
+                                      sp => sp.providerId !== provider.id
+                                    ),
+                                  });
+                                }
+                              }}
+                              className="h-4 w-4 rounded border-border text-accent focus:ring-2 focus:ring-accent"
+                            />
+                            <div className="flex-1">
+                              <div className="font-medium">{provider.name}</div>
+                              <div className="text-xs text-muted-foreground">Type: {provider.type}</div>
+                            </div>
+                            {isSelected && formData.providerSelectionStrategy === 'priority' && (
+                              <div className="flex items-center gap-2">
+                                <label className="text-sm text-muted-foreground">Priority:</label>
+                                <input
+                                  type="number"
+                                  value={selectedProvider?.priority || 0}
+                                  onChange={(e) => {
+                                    setFormData({
+                                      ...formData,
+                                      selectedProviders: formData.selectedProviders.map(sp =>
+                                        sp.providerId === provider.id
+                                          ? { ...sp, priority: parseInt(e.target.value) || 0 }
+                                          : sp
+                                      ),
+                                    });
+                                  }}
+                                  className="w-20 rounded border border-border bg-background px-2 py-1 text-sm"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {formData.selectedProviders.length === 0 && (
+                      <AlertCard variant="warning">
+                        <p className="text-sm">Please select at least one provider for multi-provider strategies.</p>
+                      </AlertCard>
+                    )}
+                  </div>
+                )}
+
+                {providers.length > 0 && formData.provider && formData.providerSelectionStrategy === 'single' && (
                   <AlertCard variant="info">
                     <p className="text-sm">
                       This API key will use the Claude API key configured in the selected provider.
@@ -683,7 +790,11 @@ export default function AdminKeysPage() {
                   type="submit"
                   className="w-full"
                   isLoading={submitting}
-                  disabled={providers.length === 0 || !formData.provider}
+                  disabled={
+                    providers.length === 0 ||
+                    (formData.providerSelectionStrategy === 'single' && !formData.provider) ||
+                    (formData.providerSelectionStrategy !== 'single' && formData.selectedProviders.length === 0)
+                  }
                 >
                   <Key className="h-4 w-4 mr-2" />
                   Create API Key

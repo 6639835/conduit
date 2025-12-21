@@ -63,6 +63,7 @@ export default function ProviderSettingsPage() {
     type: 'official' as 'official' | 'bedrock' | 'custom',
     endpoint: '',
     apiKey: '',
+    costMultiplier: 1.0,
     requestsPerMinute: 60,
     requestsPerDay: 1000,
     tokensPerDay: 1000000,
@@ -117,6 +118,7 @@ export default function ProviderSettingsPage() {
           type: formData.type,
           endpoint: formData.endpoint || undefined,
           apiKey: formData.apiKey,
+          costMultiplier: formData.costMultiplier,
           defaultRateLimits: {
             requestsPerMinute: formData.requestsPerMinute,
             requestsPerDay: formData.requestsPerDay,
@@ -138,6 +140,7 @@ export default function ProviderSettingsPage() {
         type: 'official',
         endpoint: '',
         apiKey: '',
+        costMultiplier: 1.0,
         requestsPerMinute: 60,
         requestsPerDay: 1000,
         tokensPerDay: 1000000,
@@ -171,6 +174,7 @@ export default function ProviderSettingsPage() {
           type: formData.type,
           endpoint: formData.endpoint || undefined,
           apiKey: formData.apiKey || undefined,
+          costMultiplier: formData.costMultiplier,
           defaultRateLimits: {
             requestsPerMinute: formData.requestsPerMinute,
             requestsPerDay: formData.requestsPerDay,
@@ -192,6 +196,7 @@ export default function ProviderSettingsPage() {
         type: 'official',
         endpoint: '',
         apiKey: '',
+        costMultiplier: 1.0,
         requestsPerMinute: 60,
         requestsPerDay: 1000,
         tokensPerDay: 1000000,
@@ -643,6 +648,25 @@ export default function ProviderSettingsPage() {
                   placeholder="sk-ant-..."
                   required={!editingProvider}
                 />
+
+                <div className="space-y-2">
+                  <Input
+                    label="Cost Multiplier"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max="10"
+                    value={formData.costMultiplier}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        costMultiplier: parseFloat(e.target.value) || 1.0,
+                      })
+                    }
+                    placeholder="1.00"
+                    helpText="Cost factor for this provider. 1.0 = baseline, 0.8 = 20% cheaper, 1.5 = 50% more expensive"
+                  />
+                </div>
 
                 <div className="space-y-4">
                   <h4 className="font-medium">Default Rate Limits</h4>
