@@ -27,7 +27,7 @@ const getCachedProvider = unstable_cache(
   ['provider'],
   {
     revalidate: 300, // 5 minutes
-    tags: (providerId: string) => [`provider:${providerId}`],
+    tags: ['provider'],
   }
 );
 

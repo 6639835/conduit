@@ -38,6 +38,7 @@ export interface CreateApiKeyResponse {
 
 export interface UpdateApiKeyRequest {
   name?: string;
+  providerSelectionStrategy?: 'single' | 'priority' | 'round-robin' | 'least-loaded' | 'cost-optimized';
   requestsPerMinute?: number;
   requestsPerDay?: number;
   tokensPerDay?: number;

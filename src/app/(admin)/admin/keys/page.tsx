@@ -178,6 +178,8 @@ export default function AdminKeysPage() {
         setFormData({
           name: '',
           provider: defaultProvider?.id || '',
+          providerSelectionStrategy: 'single',
+          selectedProviders: [],
           requestsPerMinute: defaultProvider?.defaultRateLimits.requestsPerMinute || 60,
           requestsPerDay: defaultProvider?.defaultRateLimits.requestsPerDay || 1000,
           tokensPerDay: defaultProvider?.defaultRateLimits.tokensPerDay || 1000000,
@@ -237,6 +239,8 @@ export default function AdminKeysPage() {
     setFormData({
       name: key.name || '',
       provider: '', // Provider is not editable
+      providerSelectionStrategy: 'single',
+      selectedProviders: [],
       requestsPerMinute: key.requestsPerMinute,
       requestsPerDay: key.requestsPerDay,
       tokensPerDay: key.tokensPerDay,

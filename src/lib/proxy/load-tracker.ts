@@ -106,17 +106,17 @@ export async function getAllProviderLoads(): Promise<Map<string, number>> {
   try {
     // Scan for all provider-load keys
     const keys: string[] = [];
-    let cursor = 0;
+    let cursor: string | number = 0;
 
     do {
-      const result = await kv.scan(cursor, {
+      const result: [string | number, string[]] = await kv.scan(cursor, {
         match: 'provider-load:*:active',
         count: 100,
       });
 
       cursor = result[0];
       keys.push(...result[1]);
-    } while (cursor !== 0);
+    } while (cursor !== 0 && cursor !== '0');
 
     // Get all values
     if (keys.length > 0) {

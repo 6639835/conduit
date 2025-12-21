@@ -45,7 +45,7 @@ export const getCachedProviderPool = unstable_cache(
   ['provider-pool'],
   {
     revalidate: 300, // 5 minutes
-    tags: (apiKeyId: string) => [`provider-pool:${apiKeyId}`],
+    tags: ['provider-pool'],
   }
 );
 

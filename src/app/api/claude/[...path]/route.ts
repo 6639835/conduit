@@ -1,20 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKeyFromHeaders } from '@/lib/auth/api-key';
-import { proxyToClaudeOfficial, isValidClaudePath, cleanResponseHeaders } from '@/lib/proxy/claude-official';
+import { isValidClaudePath, cleanResponseHeaders } from '@/lib/proxy/claude-official';
 import { createStreamingResponse, isStreamingResponse, parseNonStreamingResponse } from '@/lib/proxy/streaming';
 import { checkRateLimit, addRateLimitHeaders, createRateLimitResponse } from '@/lib/rate-limit';
 import { checkQuota, createQuotaExceededResponse, incrementTokenUsage } from '@/lib/rate-limit/quota-checker';
 import { logUsageAsync, extractRequestMetadata } from '@/lib/analytics/logger';
-import { db } from '@/lib/db';
-import { providers } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
 import { UnauthorizedError } from '@/types';
 import { validateIpAccess, getClientIp } from '@/lib/security/ip-security';
 import { verifyHmacSignature, extractHmacHeaders } from '@/lib/security/hmac';
 import { isKeyExpired } from '@/lib/key-rotation';
 import { getCachedResponse, setCachedResponse, generateCacheKey, isCacheable } from '@/lib/cache';
 import { transformResponse, type TransformationRule } from '@/lib/proxy/response-transformer';
-import { unstable_cache } from 'next/cache';
 import { z } from 'zod';
 import { selectProvidersForRequest } from '@/lib/proxy/provider-selector';
 import { makeProxyRequestWithStrategy } from '@/lib/proxy/failover';
@@ -28,25 +24,6 @@ const scopesSchema = z.object({
   endpoints: z.array(z.string()).optional(),
 }).nullable();
 
-/**
- * Cached provider fetcher to reduce database queries
- * Providers are static data that rarely change
- */
-const getCachedProvider = unstable_cache(
-  async (providerId: string) => {
-    const [provider] = await db
-      .select()
-      .from(providers)
-      .where(eq(providers.id, providerId))
-      .limit(1);
-    return provider;
-  },
-  ['provider-by-id'],
-  {
-    revalidate: 300, // Cache for 5 minutes
-    tags: ['providers'],
-  }
-);
 
 /**
  * Catch-all proxy route: /api/claude/[...path]
@@ -362,12 +339,12 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       // Cache successful responses if caching is enabled
       if (
         body &&
-        provider.cacheEnabled &&
+        primaryProvider.cacheEnabled &&
         isCacheable(body) &&
         upstreamResponse.status === 200
       ) {
         const cacheKey = await generateCacheKey(usageData.model, body);
-        const ttl = provider.cacheTtlSeconds || 300;
+        const ttl = primaryProvider.cacheTtlSeconds || 300;
 
         // Store in cache (don't await - fire and forget)
         setCachedResponse(
