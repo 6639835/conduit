@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth';
 
 // POST /api/admin/2fa/disable - Disable 2FA for an API key
 // TODO: 2FA for API keys is not yet implemented in the schema
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.email) {

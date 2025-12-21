@@ -29,12 +29,17 @@ export async function generateTotpCode(
   const view = new DataView(counterBuffer);
   view.setBigUint64(0, BigInt(counter), false); // false = big-endian
 
-  const key = base32Decode(secret);
+  const keyArray = base32Decode(secret);
+
+  // Create a fresh ArrayBuffer to ensure correct type for Web Crypto API
+  const keyBuffer = new ArrayBuffer(keyArray.length);
+  const keyView = new Uint8Array(keyBuffer);
+  keyView.set(keyArray);
 
   // Import key for HMAC
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    key,
+    keyBuffer,
     { name: 'HMAC', hash: 'SHA-1' },
     false,
     ['sign']
