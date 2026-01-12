@@ -2,20 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { notifications } from '@/lib/db/schema';
 import { desc, eq, and, sql } from 'drizzle-orm';
-import { auth } from '@/lib/auth';
+import { checkAuth } from '@/lib/auth/middleware';
 
 /**
  * GET /api/admin/notifications - Get notifications for current admin
  */
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+    const session = authResult.session;
 
     const searchParams = request.nextUrl.searchParams;
     const unreadOnly = searchParams.get('unreadOnly') === 'true';
@@ -107,13 +103,9 @@ export async function POST(request: NextRequest) {
  */
 export async function PATCH(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+    const session = authResult.session;
 
     const body = await request.json();
     const { notificationIds, markAllRead } = body;
@@ -164,13 +156,9 @@ export async function PATCH(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+    const session = authResult.session;
 
     const body = await request.json();
     const { notificationIds, deleteAll } = body;

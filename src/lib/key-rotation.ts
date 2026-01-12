@@ -59,21 +59,38 @@ export async function rotateApiKey(
 
     const keyPrefix = rawKey.substring(0, 12);
 
+    const gracePeriodEnds = _gracePeriodMs && _gracePeriodMs > 0
+      ? new Date(Date.now() + _gracePeriodMs).toISOString()
+      : undefined;
+
+    const baseMetadata =
+      existingKey.metadata && typeof existingKey.metadata === 'object' && !Array.isArray(existingKey.metadata)
+        ? (existingKey.metadata as Record<string, unknown>)
+        : {};
+    const metadata: Record<string, unknown> = { ...baseMetadata };
+
+    if (gracePeriodEnds) {
+      metadata.rotationGrace = {
+        previousKeyHash: existingKey.keyHash,
+        previousKeyPrefix: existingKey.keyPrefix,
+        gracePeriodEnds,
+      };
+    } else if ('rotationGrace' in metadata) {
+      delete metadata.rotationGrace;
+    }
+
     // Update the key in database
     await db
       .update(apiKeys)
       .set({
         keyHash,
         keyPrefix,
+        metadata,
         lastRotatedAt: new Date(),
         rotationCount: (existingKey.rotationCount || 0) + 1,
         updatedAt: new Date(),
       })
       .where(eq(apiKeys.id, keyId));
-
-    const gracePeriodEnds = _gracePeriodMs
-      ? new Date(Date.now() + _gracePeriodMs).toISOString()
-      : undefined;
 
     return {
       success: true,

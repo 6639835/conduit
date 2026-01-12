@@ -5,7 +5,7 @@ import { generateApiKey } from '@/lib/auth/api-key';
 import { desc, eq, sql } from 'drizzle-orm';
 import type { CreateApiKeyResponse, ListApiKeysResponse } from '@/types';
 import { SystemNotifications } from '@/lib/notifications';
-import { auth } from '@/lib/auth';
+import { checkAuth } from '@/lib/auth/middleware';
 import { z } from 'zod';
 import { setProviderPool } from '@/lib/proxy/provider-pool';
 
@@ -39,16 +39,9 @@ const createApiKeySchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // Check authentication
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Unauthorized',
-        } as CreateApiKeyResponse,
-        { status: 401 }
-      );
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+    const session = authResult.session;
 
     // Parse and validate request body
     const rawBody = await request.json();
@@ -215,16 +208,8 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     // Check authentication
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Unauthorized',
-        } as ListApiKeysResponse,
-        { status: 401 }
-      );
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     // Parse pagination parameters
     const { searchParams } = new URL(request.url);

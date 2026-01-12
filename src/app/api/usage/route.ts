@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { usageLogs } from '@/lib/db/schema';
-import { hashApiKey } from '@/lib/auth/api-key';
+import { validateApiKeyFromHeaders } from '@/lib/auth/api-key';
 import { getRemainingQuota } from '@/lib/rate-limit/quota-checker';
 import { eq, and, gte, sql } from 'drizzle-orm';
 import type { UsageResponse } from '@/types';
@@ -10,40 +10,31 @@ import type { UsageResponse } from '@/types';
 export const runtime = 'edge';
 
 /**
- * GET /api/usage?key=sk-cond_xxx
- * Public endpoint for users to view their usage (no authentication required)
+ * GET /api/usage
+ * Public endpoint for users to view their usage using an API key Authorization header
  */
 export async function GET(request: NextRequest) {
   try {
-    // Get API key from query params
     const searchParams = request.nextUrl.searchParams;
-    const apiKeyParam = searchParams.get('key');
-
-    if (!apiKeyParam) {
+    if (searchParams.get('key')) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Missing API key parameter',
+          error: 'API key must be provided via Authorization header',
         } as UsageResponse,
         { status: 400 }
       );
     }
 
-    // Hash the provided key and look up
-    const keyHash = await hashApiKey(apiKeyParam);
-
-    const [apiKey] = await db.query.apiKeys.findMany({
-      where: (keys, { eq }) => eq(keys.keyHash, keyHash),
-      limit: 1,
-    });
+    const apiKey = await validateApiKeyFromHeaders(request.headers);
 
     if (!apiKey) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Invalid API key',
+          error: 'Invalid or missing API key',
         } as UsageResponse,
-        { status: 404 }
+        { status: 401 }
       );
     }
 

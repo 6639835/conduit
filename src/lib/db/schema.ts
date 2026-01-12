@@ -107,7 +107,7 @@ export const apiKeys = pgTable('api_keys', {
   requestsPerMinute: integer('requests_per_minute').default(60),
   requestsPerDay: integer('requests_per_day').default(1000),
   tokensPerDay: bigint('tokens_per_day', { mode: 'number' }).default(1000000),
-  monthlySpendLimitUsd: integer('monthly_spend_limit_usd'), // In USD cents (e.g., 1000 = $10.00)
+  monthlySpendLimitUsd: integer('monthly_spend_limit_usd'), // In USD (e.g., 10 = $10.00)
 
   // Model-specific rate limits
   modelRateLimits: jsonb('model_rate_limits'), // { "claude-3-5-sonnet": { requestsPerMinute: 10 } }

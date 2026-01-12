@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { verifyTOTP } from '@/lib/security/2fa';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { logAudit } from '@/lib/audit';
+import { checkAuth } from '@/lib/auth/middleware';
 
 // POST /api/admin/2fa/verify - Verify TOTP code and enable 2FA for an API key
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+    const session = authResult.session;
 
     const body = await request.json();
     const { apiKeyId, code } = body;
@@ -46,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify the TOTP code
-    const isValid = verifyTOTP(apiKey.totpSecret, code);
+    const isValid = await verifyTOTP(apiKey.totpSecret, code);
 
     if (!isValid) {
       return NextResponse.json(

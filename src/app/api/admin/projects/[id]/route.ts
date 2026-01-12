@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { projects } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { logAudit } from '@/lib/audit';
+import { checkAuth } from '@/lib/auth/middleware';
 
 export const runtime = 'edge';
 
@@ -14,10 +14,8 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     const [project] = await db
       .select()
@@ -45,10 +43,9 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+    const session = authResult.session;
 
     const { id } = await context.params;
     const body = await request.json();
@@ -99,10 +96,9 @@ export async function DELETE(
 ) {
   try {
     const { id } = await context.params;
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+    const session = authResult.session;
 
     const [project] = await db
       .delete(projects)

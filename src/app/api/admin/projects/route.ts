@@ -1,19 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { projects, organizations } from '@/lib/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { logAudit } from '@/lib/audit';
+import { checkAuth } from '@/lib/auth/middleware';
 
 export const runtime = 'edge';
 
 // GET /api/admin/projects - List all projects (with optional org filter)
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     const { searchParams } = new URL(request.url);
     const organizationId = searchParams.get('organizationId');
@@ -47,10 +45,9 @@ export async function GET(request: NextRequest) {
 // POST /api/admin/projects - Create a new project
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+    const session = authResult.session;
 
     const body = await request.json();
     const { name, organizationId, sharedQuotas } = body;

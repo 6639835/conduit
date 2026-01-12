@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { rotateApiKey } from '@/lib/key-rotation';
 import { logAudit } from '@/lib/audit';
+import { checkAuth } from '@/lib/auth/middleware';
 
 // POST /api/admin/keys/[id]/rotate - Rotate an API key
 export async function POST(
@@ -10,10 +10,9 @@ export async function POST(
 ) {
   const { id: params_id } = await context.params;
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+    const session = authResult.session;
 
     const body = await request.json();
     const { gracePeriodMs, notifyUsers } = body;

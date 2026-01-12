@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { usageLogs, apiKeys } from '@/lib/db/schema';
 import { desc, gte, and, eq } from 'drizzle-orm';
+import { checkAuth } from '@/lib/auth/middleware';
 
 /**
  * GET /api/admin/analytics/export?format=csv|json&days=7
  * Export usage data in CSV or JSON format
  */
 export async function GET(request: NextRequest) {
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
+
   try {
     const searchParams = request.nextUrl.searchParams;
     const format = searchParams.get('format') || 'csv';

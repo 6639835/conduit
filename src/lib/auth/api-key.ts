@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { apiKeys, type ApiKey } from '@/lib/db/schema';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 
 /**
  * Hash an API key using SHA-256 (Web Crypto API - edge-compatible)
@@ -71,7 +71,43 @@ export async function validateApiKey(key: string): Promise<ApiKey | null> {
       .limit(1);
 
     if (!apiKey) {
-      return null;
+      const [rotatingKey] = await db
+        .select()
+        .from(apiKeys)
+        .where(
+          and(
+            eq(apiKeys.isActive, true),
+            isNull(apiKeys.revokedAt),
+            sql`(${apiKeys.metadata} -> 'rotationGrace' ->> 'previousKeyHash') = ${keyHash}`
+          )
+        )
+        .limit(1);
+
+      if (!rotatingKey) {
+        return null;
+      }
+
+      const metadata = rotatingKey.metadata;
+      if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+        return null;
+      }
+
+      const rotationGrace = (metadata as Record<string, unknown>).rotationGrace;
+      if (!rotationGrace || typeof rotationGrace !== 'object' || Array.isArray(rotationGrace)) {
+        return null;
+      }
+
+      const gracePeriodEnds = (rotationGrace as Record<string, unknown>).gracePeriodEnds;
+      if (typeof gracePeriodEnds !== 'string') {
+        return null;
+      }
+
+      const graceEndDate = new Date(gracePeriodEnds);
+      if (Number.isNaN(graceEndDate.getTime()) || graceEndDate <= new Date()) {
+        return null;
+      }
+
+      return rotatingKey;
     }
 
     return apiKey;

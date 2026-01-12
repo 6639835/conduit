@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { calculateErrorRates } from '@/lib/analytics/projections';
+import { checkAuth } from '@/lib/auth/middleware';
 
 export const runtime = 'edge';
 
 // GET /api/admin/analytics/errors - Get error rate analysis
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     const { searchParams } = new URL(request.url);
     const apiKeyId = searchParams.get('apiKeyId');

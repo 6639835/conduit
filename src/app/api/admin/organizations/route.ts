@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { organizations } from '@/lib/db/schema';
 import { logAudit } from '@/lib/audit';
+import { checkAuth } from '@/lib/auth/middleware';
 
 export const runtime = 'edge';
 
 // GET /api/admin/organizations - List all organizations
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     const orgs = await db.select().from(organizations).orderBy(organizations.createdAt);
 
@@ -29,10 +27,9 @@ export async function GET() {
 // POST /api/admin/organizations - Create a new organization
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+    const session = authResult.session;
 
     const body = await request.json();
     const { name, slug, plan, maxApiKeys, maxUsers } = body;

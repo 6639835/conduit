@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { auditLogs } from '@/lib/db/schema';
 import { desc, eq, and, gte, lte, sql } from 'drizzle-orm';
+import { checkAuth } from '@/lib/auth/middleware';
 
 export const runtime = 'edge';
 
 // GET /api/admin/audit-logs - List audit logs with filtering and pagination
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     const { searchParams } = new URL(request.url);
 
@@ -79,10 +77,8 @@ export async function GET(request: NextRequest) {
 // GET /api/admin/audit-logs/stats - Get audit log statistics
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '7', 10);

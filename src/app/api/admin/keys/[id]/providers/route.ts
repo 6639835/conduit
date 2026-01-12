@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProviderPool, addProviderToPool, removeProviderFromPool, updateProviderPriority } from '@/lib/proxy/provider-pool';
-import { auth } from '@/lib/auth';
+import { checkAuth } from '@/lib/auth/middleware';
 import { z } from 'zod';
 
 // Validation schema for adding provider to pool
@@ -24,13 +24,8 @@ export async function GET(
 ) {
   try {
     // Check authentication
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     const { id: apiKeyId } = await params;
 
@@ -70,13 +65,8 @@ export async function POST(
 ) {
   try {
     // Check authentication
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     const { id: apiKeyId } = await params;
 
@@ -125,13 +115,8 @@ export async function DELETE(
 ) {
   try {
     // Check authentication
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     const { id: apiKeyId } = await params;
 
@@ -175,13 +160,8 @@ export async function PATCH(
 ) {
   try {
     // Check authentication
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
 
     const { id: apiKeyId } = await params;
 
