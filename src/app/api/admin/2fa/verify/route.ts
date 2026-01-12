@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email,
+      adminEmail: session.user.email ?? undefined,
       resourceType: 'api_key',
       resourceId: apiKeyId,
       action: '2fa_enabled',

@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email,
+      adminEmail: session.user.email ?? undefined,
       resourceType: 'project',
       resourceId: project.id,
       action: 'create',

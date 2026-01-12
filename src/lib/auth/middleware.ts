@@ -1,14 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { auth } from './index';
 import { db } from '@/lib/db';
 import { admins } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { Session } from 'next-auth';
+
+type RequireAuthResult =
+  | { authenticated: false; response: NextResponse; session?: undefined }
+  | { authenticated: true; response?: undefined; session: Session };
 
 /**
  * Middleware to check if user is authenticated as an admin
  * Returns the session if authenticated, or an error response if not
  */
-export async function requireAuth() {
+export async function requireAuth(): Promise<RequireAuthResult> {
   const session = await auth();
 
   if (!session?.user?.id) {
@@ -52,6 +57,10 @@ export async function requireAuth() {
   };
 }
 
+type CheckAuthResult =
+  | { error: NextResponse; session?: undefined }
+  | { error?: undefined; session: Session };
+
 /**
  * Helper function to check authentication and return early if not authenticated
  * Usage:
@@ -59,7 +68,7 @@ export async function requireAuth() {
  * if (authResult.error) return authResult.error;
  * // Now you can use authResult.session
  */
-export async function checkAuth() {
+export async function checkAuth(): Promise<CheckAuthResult> {
   const result = await requireAuth();
 
   if (!result.authenticated) {

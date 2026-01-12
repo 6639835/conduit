@@ -75,7 +75,7 @@ export async function PATCH(
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email,
+      adminEmail: session.user.email ?? undefined,
       resourceType: 'organization',
       resourceId: org.id,
       action: 'update',
@@ -124,7 +124,7 @@ export async function DELETE(
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email,
+      adminEmail: session.user.email ?? undefined,
       resourceType: 'organization',
       resourceId: org.id,
       action: 'delete',

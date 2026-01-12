@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     // Generate TOTP setup
     const setup = await setupTOTP(
       apiKey.name || apiKey.keyPrefix,
-      session.user.email
+      session.user.email ?? 'admin@conduit.local'
     );
 
     // Store the secret in the database

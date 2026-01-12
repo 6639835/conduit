@@ -32,7 +32,7 @@ export async function POST(
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email,
+      adminEmail: session.user.email ?? undefined,
       resourceType: 'api_key',
       resourceId: params_id,
       action: 'rotate',
