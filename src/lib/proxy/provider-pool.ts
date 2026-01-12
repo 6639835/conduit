@@ -5,7 +5,7 @@
 
 import { db } from '@/lib/db';
 import { apiKeyProviders, providers, type Provider } from '@/lib/db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { unstable_cache } from 'next/cache';
 
 /**
@@ -17,6 +17,7 @@ export async function getProviderPool(apiKeyId: string): Promise<Provider[]> {
     const results = await db
       .select({
         provider: providers,
+        priority: apiKeyProviders.priority,
       })
       .from(apiKeyProviders)
       .innerJoin(providers, eq(apiKeyProviders.providerId, providers.id))
@@ -28,7 +29,10 @@ export async function getProviderPool(apiKeyId: string): Promise<Provider[]> {
       )
       .orderBy(desc(apiKeyProviders.priority));
 
-    return results.map((r) => r.provider);
+    return results.map((r) => ({
+      ...r.provider,
+      priority: r.priority,
+    }));
   } catch (error) {
     console.error(`[ProviderPool] Failed to get provider pool for API key ${apiKeyId}:`, error);
     return [];
@@ -190,14 +194,14 @@ export async function setProviderPool(
  */
 export async function getProviderUsageCount(providerId: string): Promise<number> {
   try {
-    const result = await db
+    const [{ count }] = await db
       .select({
-        count: eq(apiKeyProviders.providerId, providerId),
+        count: sql<number>`count(*)`,
       })
       .from(apiKeyProviders)
       .where(eq(apiKeyProviders.providerId, providerId));
 
-    return result.length;
+    return count || 0;
   } catch (error) {
     console.error(`[ProviderPool] Failed to get usage count for provider ${providerId}:`, error);
     return 0;

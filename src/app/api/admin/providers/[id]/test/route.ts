@@ -4,6 +4,7 @@ import { providers } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { decryptApiKey } from '@/lib/utils/crypto';
 import { SystemNotifications } from '@/lib/notifications';
+import { checkAuth } from '@/lib/auth/middleware';
 
 /**
  * POST /api/admin/providers/[id]/test - Test a provider connection
@@ -13,6 +14,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+
     const { id } = await params;
 
     // Fetch provider

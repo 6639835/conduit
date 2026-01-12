@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { providers } from '@/lib/db/schema';
 import { encryptApiKey } from '@/lib/utils/crypto';
 import { eq, ne } from 'drizzle-orm';
+import { checkAuth } from '@/lib/auth/middleware';
 
 export interface UpdateProviderRequest {
   name?: string;
@@ -89,6 +90,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+
     const { id } = await params;
 
     // Find the provider
@@ -152,6 +156,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+
     const { id } = await params;
     const body: UpdateProviderRequest = await request.json();
 
@@ -295,6 +302,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+
     const { id } = await params;
 
     // Find existing provider

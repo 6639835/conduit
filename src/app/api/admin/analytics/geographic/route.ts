@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGeoUsageStats, getGlobalGeoUsageStats } from '@/lib/analytics/geo-location';
+import { checkAuth } from '@/lib/auth/middleware';
 
 export const runtime = 'edge';
 
@@ -14,6 +15,9 @@ export const runtime = 'edge';
  */
 export async function GET(request: NextRequest) {
   try {
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+
     const searchParams = request.nextUrl.searchParams;
     const apiKeyId = searchParams.get('apiKeyId');
     const days = parseInt(searchParams.get('days') || '30', 10);

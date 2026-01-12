@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { providers } from '@/lib/db/schema';
 import { encryptApiKey } from '@/lib/utils/crypto';
 import { desc } from 'drizzle-orm';
+import { checkAuth } from '@/lib/auth/middleware';
 
 export interface CreateProviderRequest {
   name: string;
@@ -69,6 +70,9 @@ function getDefaultEndpoint(type: string): string {
  */
 export async function POST(request: NextRequest) {
   try {
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+
     const body: CreateProviderRequest = await request.json();
 
     // Validate required fields
@@ -169,6 +173,9 @@ export async function POST(request: NextRequest) {
  */
 export async function GET() {
   try {
+    const authResult = await checkAuth();
+    if (authResult.error) return authResult.error;
+
     const allProviders = await db
       .select({
         id: providers.id,
