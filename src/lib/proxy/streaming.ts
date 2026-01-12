@@ -97,30 +97,30 @@ function parseSSEChunk(chunk: string, usageData: Partial<StreamUsageData>) {
       try {
         const data = JSON.parse(line.slice(6));
 
+        const updateUsage = (usage?: { input_tokens?: number; output_tokens?: number }) => {
+          if (!usage) return;
+          if (typeof usage.input_tokens === 'number') {
+            usageData.tokensInput = Math.max(usageData.tokensInput || 0, usage.input_tokens);
+          }
+          if (typeof usage.output_tokens === 'number') {
+            usageData.tokensOutput = Math.max(usageData.tokensOutput || 0, usage.output_tokens);
+          }
+        };
+
         // Extract model name from message_start event
         if (data.type === 'message_start' && data.message?.model) {
           usageData.model = data.message.model;
         }
 
-        // Extract usage from message_start event
-        if (data.type === 'message_start' && data.message?.usage) {
-          usageData.tokensInput = Math.max(usageData.tokensInput || 0, data.message.usage.input_tokens || 0);
-          usageData.tokensOutput = Math.max(usageData.tokensOutput || 0, data.message.usage.output_tokens || 0);
+        // Usage can appear in message_start, message_delta, or final stop events
+        if (data.message?.usage) {
+          updateUsage(data.message.usage);
         }
-
-        // Update token counts from message_delta events (use Math.max to prevent overwrites)
-        if (data.type === 'message_delta' && data.usage) {
-          usageData.tokensOutput = Math.max(usageData.tokensOutput || 0, data.usage.output_tokens || 0);
+        if (data.usage) {
+          updateUsage(data.usage);
         }
-
-        // Final usage from message_stop or content_block_stop (use Math.max to prevent overwrites)
-        if (data.type === 'message_delta' && data.delta?.usage) {
-          if (data.delta.usage.input_tokens) {
-            usageData.tokensInput = Math.max(usageData.tokensInput || 0, data.delta.usage.input_tokens);
-          }
-          if (data.delta.usage.output_tokens) {
-            usageData.tokensOutput = Math.max(usageData.tokensOutput || 0, data.delta.usage.output_tokens);
-          }
+        if (data.delta?.usage) {
+          updateUsage(data.delta.usage);
         }
       } catch {
         // Ignore JSON parse errors (non-JSON events)

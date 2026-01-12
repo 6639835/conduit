@@ -1,6 +1,6 @@
 import { db } from '../db';
 import { usageLogs } from '../db/schema';
-import { eq, gte, and, sql } from 'drizzle-orm';
+import { eq, gte, lt, and, sql } from 'drizzle-orm';
 
 export interface CostProjection {
   currentSpend: number; // In cents
@@ -48,8 +48,6 @@ export async function calculateCostProjection(
 
   // Get previous month for trend analysis
   const startOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const endOfPreviousMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-
   const previousMonthSpend = await db
     .select({
       total: sql<number>`SUM(${usageLogs.costUsd})`.as('total'),
@@ -59,7 +57,7 @@ export async function calculateCostProjection(
       and(
         eq(usageLogs.apiKeyId, apiKeyId),
         gte(usageLogs.timestamp, startOfPreviousMonth),
-        sql`${usageLogs.timestamp} <= ${endOfPreviousMonth}`
+        lt(usageLogs.timestamp, startOfMonth)
       )
     );
 

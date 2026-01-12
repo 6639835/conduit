@@ -12,23 +12,39 @@ export async function generateCacheKey(
   model: string,
   requestBody: Record<string, unknown>
 ): Promise<string> {
-  // Create a deterministic string from the request
+  // Create a deterministic string from the request (stable key ordering)
   const cacheData = {
+    ...requestBody,
     model,
-    messages: requestBody.messages,
-    system: requestBody.system,
-    max_tokens: requestBody.max_tokens,
-    temperature: requestBody.temperature,
-    // Include other parameters that affect the response
   };
 
-  const dataString = JSON.stringify(cacheData);
+  const dataString = stableStringify(cacheData);
   const encoder = new TextEncoder();
   const data = encoder.encode(dataString);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   return hashHex;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entryValue]) => entryValue !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  const serializedEntries = entries.map(
+    ([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`
+  );
+
+  return `{${serializedEntries.join(',')}}`;
 }
 
 /**
