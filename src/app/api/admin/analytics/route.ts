@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { usageLogs, apiKeys } from '@/lib/db/schema';
 import { eq, gte, sql, desc } from 'drizzle-orm';
-
-// Configure edge runtime
-export const runtime = 'edge';
+import { checkAuth } from '@/lib/auth/middleware';
 
 interface AnalyticsResponse {
   success: boolean;
@@ -52,10 +50,11 @@ interface AnalyticsResponse {
  * - days: number of days to look back (default: 30)
  */
 export async function GET(request: NextRequest) {
-  try {
-    // TODO: Add admin authentication here
-    // For now, this endpoint is unprotected (as noted in README)
+  // Check authentication
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
 
+  try {
     const searchParams = request.nextUrl.searchParams;
     const daysParam = searchParams.get('days');
     const days = daysParam ? parseInt(daysParam) : 30;

@@ -47,6 +47,29 @@ export interface DeleteProviderResponse {
   error?: string;
 }
 
+export interface GetProviderResponse {
+  success: boolean;
+  provider?: {
+    id: string;
+    name: string;
+    type: string;
+    endpoint: string;
+    costMultiplier: string;
+    isActive: boolean;
+    isDefault: boolean;
+    status: string | null;
+    lastTestedAt: string | null;
+    defaultRateLimits: {
+      requestsPerMinute: number;
+      requestsPerDay: number;
+      tokensPerDay: number;
+    };
+    createdAt: string;
+    updatedAt: string;
+  };
+  error?: string;
+}
+
 function getDefaultEndpoint(type: string): string {
   switch (type) {
     case 'official':
@@ -55,6 +78,69 @@ function getDefaultEndpoint(type: string): string {
       return 'https://bedrock-runtime.us-east-1.amazonaws.com';
     default:
       return '';
+  }
+}
+
+/**
+ * GET /api/admin/providers/[id] - Get a single provider
+ */
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+
+    // Find the provider
+    const [provider] = await db
+      .select()
+      .from(providers)
+      .where(eq(providers.id, id))
+      .limit(1);
+
+    if (!provider) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Provider not found',
+        } as GetProviderResponse,
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        provider: {
+          id: provider.id,
+          name: provider.name,
+          type: provider.type,
+          endpoint: provider.endpoint,
+          costMultiplier: provider.costMultiplier,
+          isActive: provider.isActive,
+          isDefault: provider.isDefault,
+          status: provider.status,
+          lastTestedAt: provider.lastTestedAt?.toISOString() || null,
+          defaultRateLimits: provider.defaultRateLimits as {
+            requestsPerMinute: number;
+            requestsPerDay: number;
+            tokensPerDay: number;
+          },
+          createdAt: provider.createdAt.toISOString(),
+          updatedAt: provider.updatedAt.toISOString(),
+        },
+      } as GetProviderResponse,
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('Error fetching provider:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Failed to fetch provider',
+      } as GetProviderResponse,
+      { status: 500 }
+    );
   }
 }
 

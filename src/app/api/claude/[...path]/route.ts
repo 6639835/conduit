@@ -14,6 +14,7 @@ import { transformResponse, type TransformationRule } from '@/lib/proxy/response
 import { z } from 'zod';
 import { selectProvidersForRequest } from '@/lib/proxy/provider-selector';
 import { makeProxyRequestWithStrategy } from '@/lib/proxy/failover';
+import { verifyTOTP } from '@/lib/security/2fa';
 
 // Configure edge runtime for global distribution
 export const runtime = 'edge';
@@ -101,6 +102,37 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         },
         { status: 403 }
       );
+    }
+
+    // TOTP/2FA verification
+    if (apiKey.totpEnabled && apiKey.totpSecret) {
+      const totpCode = request.headers.get('x-totp-code');
+
+      if (!totpCode) {
+        return NextResponse.json(
+          {
+            error: {
+              type: 'authentication_error',
+              message: '2FA is enabled for this API key. Please provide X-TOTP-Code header.',
+            },
+          },
+          { status: 401 }
+        );
+      }
+
+      const isValid = await verifyTOTP(apiKey.totpSecret, totpCode);
+
+      if (!isValid) {
+        return NextResponse.json(
+          {
+            error: {
+              type: 'authentication_error',
+              message: 'Invalid TOTP code',
+            },
+          },
+          { status: 401 }
+        );
+      }
     }
 
     // Parse request body if present (needed for HMAC and scope validation)

@@ -3,6 +3,8 @@
  * Supports multiple email providers via environment variables
  */
 
+import nodemailer from 'nodemailer';
+
 interface EmailParams {
   to: string;
   subject: string;
@@ -97,17 +99,52 @@ async function sendViaSendGrid(params: EmailParams): Promise<boolean> {
 }
 
 /**
- * Sends email via SMTP (placeholder - requires nodemailer in production)
+ * Sends email via SMTP using nodemailer
  */
 async function sendViaSmtp(params: EmailParams): Promise<boolean> {
-  // In production, you would use nodemailer or a similar library
-  // For now, just log the email
-  console.log('SMTP Email (not configured):', {
-    to: params.to,
-    subject: params.subject,
-  });
+  const smtpHost = process.env.SMTP_HOST;
+  const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587;
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+  const fromEmail = process.env.EMAIL_FROM || 'noreply@conduit.dev';
+  const smtpSecure = process.env.SMTP_SECURE === 'true'; // true for port 465, false for other ports
 
-  return true; // Return true for development
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    console.error('SMTP credentials not configured. Required: SMTP_HOST, SMTP_USER, SMTP_PASS');
+    console.log('Email not sent:', {
+      to: params.to,
+      subject: params.subject,
+    });
+    return false;
+  }
+
+  try {
+    // Create transporter
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    });
+
+    // Send email
+    const info = await transporter.sendMail({
+      from: fromEmail,
+      to: params.to,
+      subject: params.subject,
+      text: params.text,
+      html: params.html,
+    });
+
+    console.log('SMTP Email sent successfully:', info.messageId);
+    return true;
+  } catch (error) {
+    console.error('SMTP Email error:', error);
+    return false;
+  }
 }
 
 /**

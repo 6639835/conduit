@@ -3,15 +3,19 @@ import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { UpdateApiKeyRequest, RevokeApiKeyResponse } from '@/types';
+import { checkAuth } from '@/lib/auth/middleware';
 
 /**
  * PATCH /api/admin/keys/[id] - Update an API key
- * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Check authentication
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
+
   try {
     const { id } = await params;
     const body: UpdateApiKeyRequest = await request.json();
@@ -69,12 +73,15 @@ export async function PATCH(
 
 /**
  * DELETE /api/admin/keys/[id] - Revoke an API key
- * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Check authentication
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
+
   try {
     const { id } = await params;
 
@@ -119,12 +126,15 @@ export async function DELETE(
 
 /**
  * GET /api/admin/keys/[id] - Get a specific API key
- * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Check authentication
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
+
   try {
     const { id } = await params;
 

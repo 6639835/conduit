@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { usageLogs, apiKeys, admins } from '@/lib/db/schema';
 import { desc, gte, eq } from 'drizzle-orm';
-
-// Configure edge runtime
-export const runtime = 'edge';
+import { checkAuth } from '@/lib/auth/middleware';
 
 interface ActivityItem {
   id: string;
@@ -29,13 +27,16 @@ interface ActivityResponse {
 /**
  * GET /api/admin/activity
  * Get recent activity logs across the system
- * TODO: Add authentication middleware (NextAuth) in Phase 7
  *
  * Query params:
  * - limit: number of activities to return (default: 50)
  * - days: number of days to look back (default: 7)
  */
 export async function GET(request: NextRequest) {
+  // Check authentication
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
+
   try {
     const searchParams = request.nextUrl.searchParams;
     const limitParam = searchParams.get('limit');

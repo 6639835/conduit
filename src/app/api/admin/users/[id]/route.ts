@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { admins, apiKeys } from '@/lib/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
+import { checkAuth } from '@/lib/auth/middleware';
 
 interface UpdateUserRequest {
   email?: string;
@@ -44,12 +45,15 @@ interface GetUserResponse {
 
 /**
  * GET /api/admin/users/[id] - Get a specific user
- * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Check authentication
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
+
   try {
     const { id } = await params;
 
@@ -115,12 +119,15 @@ export async function GET(
 
 /**
  * PATCH /api/admin/users/[id] - Update a user
- * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Check authentication
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
+
   try {
     const { id } = await params;
     const body: UpdateUserRequest = await request.json();
@@ -218,12 +225,15 @@ export async function PATCH(
 
 /**
  * DELETE /api/admin/users/[id] - Delete a user
- * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Check authentication
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
+
   try {
     const { id } = await params;
 

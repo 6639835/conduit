@@ -4,6 +4,7 @@ import { admins } from '@/lib/db/schema';
 import { apiKeys } from '@/lib/db/schema';
 import { desc, eq, sql } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
+import { checkAuth } from '@/lib/auth/middleware';
 
 interface CreateUserRequest {
   email: string;
@@ -40,9 +41,12 @@ interface ListUsersResponse {
 
 /**
  * POST /api/admin/users - Create a new admin user
- * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function POST(request: NextRequest) {
+  // Check authentication
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
+
   try {
     const body: CreateUserRequest = await request.json();
 
@@ -125,9 +129,12 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/admin/users - List all admin users
- * TODO: Add authentication middleware (NextAuth) in Phase 7
  */
 export async function GET() {
+  // Check authentication
+  const authResult = await checkAuth();
+  if (authResult.error) return authResult.error;
+
   try {
     // Get all users with their API key counts
     const users = await db
