@@ -3,6 +3,7 @@ import { providers, type Provider as ProviderSchema, type ApiKey } from '../db/s
 import { eq, and, desc } from 'drizzle-orm';
 import { decrypt } from '../utils/crypto';
 import { proxyToClaudeOfficial } from './claude-official';
+import { proxyToOpenAI } from './openai';
 import { incrementProviderLoad, decrementProviderLoad } from './load-tracker';
 
 export interface Provider {
@@ -278,6 +279,17 @@ export async function makeProxyRequestWithStrategy(
       // Try the request with retry logic
       const response = await withRetry(
         async () => {
+          if (provider.type === 'codex') {
+            return await proxyToOpenAI({
+              apiKey,
+              provider,
+              path,
+              method,
+              headers,
+              body,
+            });
+          }
+
           return await proxyToClaudeOfficial({
             apiKey,
             provider,

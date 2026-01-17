@@ -26,14 +26,14 @@ export default function DocumentationPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">
-              Conduit is a transparent Claude API gateway that provides usage analytics,
-              rate limiting, and centralized API key management. Get started in minutes
-              by following these steps.
+              Conduit is a transparent Claude and Codex API gateway that provides usage
+              analytics, rate limiting, and centralized API key management. Get started
+              in minutes by following these steps.
             </p>
             <ol className="list-decimal list-inside space-y-2 text-muted-foreground">
               <li>Contact your administrator to obtain an API key</li>
-              <li>Replace your existing Anthropic API endpoint with the Conduit endpoint</li>
-              <li>Use your Conduit API key in place of your Anthropic API key</li>
+              <li>Replace your existing Anthropic or OpenAI API endpoint with the Conduit endpoint</li>
+              <li>Use your Conduit API key in place of your Anthropic or OpenAI API key</li>
               <li>Monitor your usage through the Usage Dashboard</li>
             </ol>
           </CardContent>
@@ -49,8 +49,8 @@ export default function DocumentationPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">
-              Using Conduit is identical to using the Claude API directly. Simply update
-              your API endpoint and key.
+              Using Conduit is identical to using the Claude or Codex APIs directly. Simply
+              update your API endpoint and key.
             </p>
             <div className="bg-muted p-4 rounded-md font-mono text-sm">
               <div className="space-y-2">
@@ -82,7 +82,7 @@ export default function DocumentationPage() {
               <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                 <li>Custom rate limits (requests per minute/day)</li>
                 <li>Token quotas (tokens per day)</li>
-                <li>Provider assignment (multiple Anthropic API keys)</li>
+                <li>Provider assignment (Claude, Codex, and custom endpoints)</li>
                 <li>Usage tracking and analytics</li>
               </ul>
             </div>

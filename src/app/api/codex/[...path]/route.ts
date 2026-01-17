@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKeyFromHeaders } from '@/lib/auth/api-key';
-import { isValidClaudePath, cleanResponseHeaders } from '@/lib/proxy/claude-official';
-import { createStreamingResponse, isStreamingResponse, parseNonStreamingResponse } from '@/lib/proxy/streaming';
+import { isValidOpenAIPath } from '@/lib/proxy/openai';
+import { cleanResponseHeaders } from '@/lib/proxy/claude-official';
+import { createOpenAIStreamingResponse, isOpenAIStreamingResponse, parseOpenAINonStreamingResponse } from '@/lib/proxy/openai-streaming';
 import { checkRateLimit, addRateLimitHeaders, createRateLimitResponse } from '@/lib/rate-limit';
 import { checkQuota, createQuotaExceededResponse, incrementTokenUsage } from '@/lib/rate-limit/quota-checker';
 import { logUsageAsync, extractRequestMetadata } from '@/lib/analytics/logger';
@@ -16,41 +17,27 @@ import { selectProvidersForRequest } from '@/lib/proxy/provider-selector';
 import { makeProxyRequestWithStrategy } from '@/lib/proxy/failover';
 import { verifyTOTP } from '@/lib/security/2fa';
 
-// Configure edge runtime for global distribution
 export const runtime = 'edge';
 
-// Validation schema for API key scopes
 const scopesSchema = z.object({
   models: z.array(z.string()).optional(),
   endpoints: z.array(z.string()).optional(),
 }).nullable();
 
-
 /**
- * Catch-all proxy route: /api/claude/[...path]
- * Forwards ALL Claude API requests transparently
- *
- * Flow:
- * 1. Extract and validate API key from Authorization header
- * 2. Check rate limits
- * 3. Check quotas
- * 4. Forward request to Claude API with target key
- * 5. Stream response back to client
- * 6. Log usage asynchronously
+ * Catch-all proxy route: /api/codex/[...path]
+ * Forwards OpenAI API requests (Responses API preferred)
  */
 async function handleRequest(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const startTime = Date.now();
 
   try {
-    // Extract path from params
     const { path: pathSegments } = await context.params;
     const path = `/${pathSegments.join('/')}`;
 
-    // Extract request metadata for logging
     const requestMetadata = extractRequestMetadata(request.headers);
 
-    // Validate path
-    if (!isValidClaudePath(path)) {
+    if (!isValidOpenAIPath(path)) {
       return NextResponse.json(
         {
           error: {
@@ -62,7 +49,6 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       );
     }
 
-    // Validate API key
     const apiKey = await validateApiKeyFromHeaders(request.headers);
     if (!apiKey) {
       return NextResponse.json(
@@ -76,7 +62,6 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       );
     }
 
-    // Check if key has expired
     if (isKeyExpired(apiKey.expiresAt)) {
       return NextResponse.json(
         {
@@ -89,7 +74,6 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       );
     }
 
-    // IP security check
     const clientIp = getClientIp(request);
     const ipCheck = validateIpAccess(clientIp, apiKey);
     if (!ipCheck.allowed) {
@@ -104,7 +88,6 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       );
     }
 
-    // TOTP/2FA verification
     if (apiKey.totpEnabled && apiKey.totpSecret) {
       const totpCode = request.headers.get('x-totp-code');
 
@@ -135,7 +118,6 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    // Parse request body if present (needed for HMAC and scope validation)
     let body = null;
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       const contentType = request.headers.get('content-type');
@@ -157,7 +139,6 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    // HMAC signature verification
     if (apiKey.hmacEnabled && apiKey.hmacSecret) {
       const { signature, timestamp } = extractHmacHeaders(request);
 
@@ -196,9 +177,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    // Scope validation (model and endpoint restrictions)
     if (apiKey.scopes) {
-      // Validate scopes structure at runtime
       const scopesValidation = scopesSchema.safeParse(apiKey.scopes);
       if (!scopesValidation.success) {
         console.error('Invalid scopes format for API key:', apiKey.id);
@@ -215,7 +194,6 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
 
       const scopes = scopesValidation.data;
 
-      // Check endpoint restriction
       if (scopes && scopes.endpoints && scopes.endpoints.length > 0) {
         const allowed = scopes.endpoints.some((endpoint) => path.startsWith(endpoint));
         if (!allowed) {
@@ -231,9 +209,8 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         }
       }
 
-      // Check model restriction (will be verified after parsing request body)
       if (body && scopes && scopes.models && scopes.models.length > 0) {
-        const requestedModel = body.model;
+        const requestedModel = (body as { model?: string }).model;
         if (requestedModel && !scopes.models.includes(requestedModel)) {
           return NextResponse.json(
             {
@@ -248,50 +225,38 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    // Select providers based on API key strategy (multi-provider support)
-    const requestedModel = body && typeof body === 'object' && 'model' in body ? (body.model as string) : undefined;
-    const selectedProviders = await selectProvidersForRequest(apiKey, requestedModel, [
-      'official',
-      'bedrock',
-      'custom',
-    ]);
+    const requestedModel = body && typeof body === 'object' && 'model' in body ? (body as { model?: string }).model : undefined;
+    const selectedProviders = await selectProvidersForRequest(apiKey, requestedModel, ['codex']);
 
     if (!selectedProviders || selectedProviders.length === 0) {
       return NextResponse.json(
         {
           error: {
             type: 'configuration_error',
-            message: 'No available providers for this API key. Please contact support.',
+            message: 'No available Codex providers for this API key. Please contact support.',
           },
         },
         { status: 503 }
       );
     }
 
-    // Get first provider for cache check (cache settings might vary by provider)
     const primaryProvider = selectedProviders[0];
 
-    // Check rate limits
     const rateLimitResult = await checkRateLimit(apiKey);
     if (!rateLimitResult.allowed) {
       return createRateLimitResponse(rateLimitResult);
     }
 
-    // Check quotas
     const quotaResult = await checkQuota(apiKey);
     if (!quotaResult.allowed) {
       return createQuotaExceededResponse(quotaResult);
     }
 
-    // Check cache for non-streaming requests
     if (body && primaryProvider.cacheEnabled && isCacheable(body)) {
-      const cacheKey = await generateCacheKey(body.model || 'claude-3-5-sonnet-20241022', body);
+      const cacheKey = await generateCacheKey((body as { model?: string }).model || 'codex', body as Record<string, unknown>);
       const cachedResponse = await getCachedResponse(cacheKey);
 
       if (cachedResponse) {
-        console.log('Cache hit for request');
-
-        // Return cached response with cache headers
         const headers = new Headers();
         headers.set('X-Cache', 'HIT');
         headers.set('Content-Type', 'application/json');
@@ -304,7 +269,6 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    // Forward request to Claude API with failover support
     const upstreamResponse = await makeProxyRequestWithStrategy(
       apiKey,
       selectedProviders,
@@ -314,19 +278,14 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       body
     );
 
-    // Calculate latency
     const latencyMs = Date.now() - startTime;
 
-    // Handle streaming response
-    if (isStreamingResponse(upstreamResponse)) {
-      // Create streaming proxy with usage tracking
-      const streamResponse = await createStreamingResponse(
+    if (isOpenAIStreamingResponse(upstreamResponse)) {
+      const streamResponse = await createOpenAIStreamingResponse(
         upstreamResponse,
         async (usageData) => {
-          // Increment token usage for quota tracking (await to ensure it completes)
           await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
 
-          // Log usage to database
           logUsageAsync({
             apiKeyId: apiKey.id,
             method: request.method,
@@ -341,7 +300,6 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         }
       );
 
-      // Clean headers and add rate limit info
       const headers = cleanResponseHeaders(streamResponse.headers);
       addRateLimitHeaders(headers, rateLimitResult);
 
@@ -352,14 +310,11 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       });
     }
 
-    // Handle non-streaming response
-    const { body: responseBody, usageData } = await parseNonStreamingResponse(upstreamResponse);
+    const { body: responseBody, usageData } = await parseOpenAINonStreamingResponse(upstreamResponse);
 
     if (usageData) {
-      // Increment token usage for quota tracking (await to ensure it completes)
       await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
 
-      // Log usage to database
       logUsageAsync({
         apiKeyId: apiKey.id,
         method: request.method,
@@ -372,17 +327,15 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         ...requestMetadata,
       });
 
-      // Cache successful responses if caching is enabled
       if (
         body &&
         primaryProvider.cacheEnabled &&
         isCacheable(body) &&
         upstreamResponse.status === 200
       ) {
-        const cacheKey = await generateCacheKey(usageData.model, body);
+        const cacheKey = await generateCacheKey(usageData.model, body as Record<string, unknown>);
         const ttl = primaryProvider.cacheTtlSeconds || 300;
 
-        // Store in cache (don't await - fire and forget)
         setCachedResponse(
           cacheKey,
           responseBody,
@@ -394,12 +347,10 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    // Clean headers and add rate limit info
     const headers = cleanResponseHeaders(upstreamResponse.headers);
     headers.set('X-Cache', 'MISS');
     addRateLimitHeaders(headers, rateLimitResult);
 
-    // Apply response transformations if configured
     let finalBody = responseBody;
     let finalHeaders = headers;
     let finalStatus = upstreamResponse.status;
@@ -425,14 +376,12 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         finalBody = transformed.body;
         finalStatus = transformed.status;
 
-        // Apply transformed headers
         finalHeaders = new Headers();
         for (const [key, value] of Object.entries(transformed.headers)) {
           finalHeaders.set(key, value);
         }
       } catch (transformError) {
         console.error('Response transformation error:', transformError);
-        // Continue with untransformed response
       }
     }
 
@@ -442,9 +391,8 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       headers: finalHeaders,
     });
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('Codex proxy error:', error);
 
-    // Return appropriate error response
     if (error instanceof UnauthorizedError) {
       return NextResponse.json(
         {
@@ -469,7 +417,6 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
   }
 }
 
-// Export handlers for all HTTP methods
 export const GET = handleRequest;
 export const POST = handleRequest;
 export const PUT = handleRequest;

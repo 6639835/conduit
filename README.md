@@ -1,10 +1,10 @@
-# Conduit - Claude API Gateway with Analytics
+# Conduit - Claude & Codex API Gateway with Analytics
 
 A transparent, edge-first API gateway for Claude AI with built-in usage analytics, rate limiting, and beautiful dashboards.
 
 ## Features
 
-- **Transparent Proxy**: Forwards any Claude API request without wrapping or modifying the API
+- **Transparent Proxy**: Forwards Claude and Codex API requests without wrapping or modifying the API
 - **Edge Runtime**: Global distribution with Vercel Edge for ultra-low latency
 - **Rate Limiting**: Per-minute and per-day limits enforced at the edge with Vercel KV
 - **Quota Management**: Token-based quotas with real-time tracking
@@ -85,7 +85,7 @@ Visit http://localhost:3000
 2. Enter your API key
 3. View usage stats and remaining quota
 
-### Make API Requests
+### Make Claude API Requests
 
 ```bash
 curl -X POST http://localhost:3000/api/claude/v1/messages \
@@ -97,6 +97,18 @@ curl -X POST http://localhost:3000/api/claude/v1/messages \
     "max_tokens": 1024,
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
+
+### Make Codex API Requests (OpenAI Responses)
+
+```bash
+curl -X POST http://localhost:3000/api/codex/v1/responses \
+  -H "Authorization: Bearer sk-cond_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.1-codex-mini",
+    "input": "Explain what this repository does."
+  }'
+```
 ```
 
 ## Tech Stack

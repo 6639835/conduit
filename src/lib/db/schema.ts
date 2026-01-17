@@ -23,13 +23,13 @@ export const admins = pgTable('admins', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-// Providers table (centralized Claude API provider configuration)
+// Providers table (centralized model provider configuration)
 export const providers = pgTable('providers', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
-  type: varchar('type', { length: 20 }).notNull().default('official'), // 'official', 'bedrock', 'custom'
+  type: varchar('type', { length: 20 }).notNull().default('official'), // 'official', 'bedrock', 'custom', 'codex'
   endpoint: text('endpoint').notNull(),
-  apiKey: text('api_key').notNull(), // Encrypted Claude API key
+  apiKey: text('api_key').notNull(), // Encrypted provider credential (API key or OAuth token)
 
   // Status
   isActive: boolean('is_active').notNull().default(true),

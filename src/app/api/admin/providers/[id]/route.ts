@@ -7,7 +7,7 @@ import { checkAuth } from '@/lib/auth/middleware';
 
 export interface UpdateProviderRequest {
   name?: string;
-  type?: 'official' | 'bedrock' | 'custom';
+  type?: 'official' | 'bedrock' | 'custom' | 'codex';
   endpoint?: string;
   apiKey?: string;
   costMultiplier?: number;
@@ -77,6 +77,8 @@ function getDefaultEndpoint(type: string): string {
       return 'https://api.anthropic.com';
     case 'bedrock':
       return 'https://bedrock-runtime.us-east-1.amazonaws.com';
+    case 'codex':
+      return 'https://api.openai.com';
     default:
       return '';
   }
@@ -191,11 +193,11 @@ export async function PATCH(
 
     // Update type if provided
     if (body.type !== undefined) {
-      if (!['official', 'bedrock', 'custom'].includes(body.type)) {
+      if (!['official', 'bedrock', 'custom', 'codex'].includes(body.type)) {
         return NextResponse.json(
           {
             success: false,
-            error: 'Invalid provider type. Must be "official", "bedrock", or "custom"',
+            error: 'Invalid provider type. Must be "official", "bedrock", "custom", or "codex"',
           } as UpdateProviderResponse,
           { status: 400 }
         );

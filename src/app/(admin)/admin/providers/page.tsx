@@ -32,7 +32,7 @@ import { toast } from '@/lib/toast';
 interface Provider {
   id: string;
   name: string;
-  type: 'official' | 'bedrock' | 'custom';
+  type: 'official' | 'bedrock' | 'custom' | 'codex';
   endpoint: string;
   isActive: boolean;
   isDefault: boolean;
@@ -47,7 +47,7 @@ interface Provider {
 }
 
 /**
- * Provider management page - allows admins to configure Claude API providers
+ * Provider management page - allows admins to configure model providers
  * and endpoints for the gateway.
  */
 export default function ProviderSettingsPage() {
@@ -60,7 +60,7 @@ export default function ProviderSettingsPage() {
 
   const [formData, setFormData] = useState({
     name: '',
-    type: 'official' as 'official' | 'bedrock' | 'custom',
+    type: 'official' as 'official' | 'bedrock' | 'custom' | 'codex',
     endpoint: '',
     apiKey: '',
     costMultiplier: 1.0,
@@ -98,6 +98,8 @@ export default function ProviderSettingsPage() {
         return 'https://api.anthropic.com';
       case 'bedrock':
         return 'https://bedrock.us-east-1.amazonaws.com';
+      case 'codex':
+        return 'https://api.openai.com';
       default:
         return '';
     }
@@ -423,6 +425,8 @@ export default function ProviderSettingsPage() {
             ? 'Official'
             : row.type === 'bedrock'
             ? 'AWS Bedrock'
+            : row.type === 'codex'
+            ? 'Codex (OpenAI)'
             : 'Custom'}
         </span>
       ),
@@ -562,7 +566,7 @@ export default function ProviderSettingsPage() {
           <div className="space-y-1">
             <h1 className="text-3xl font-bold">Provider Settings</h1>
             <p className="text-muted-foreground">
-              Configure Claude API providers and endpoints for your gateway
+              Configure model providers and endpoints for your gateway
             </p>
           </div>
           <Button onClick={() => setShowCreateForm(true)}>
@@ -599,29 +603,31 @@ export default function ProviderSettingsPage() {
                     onChange={(e) =>
                       setFormData({ ...formData, name: e.target.value })
                     }
-                    placeholder="My Claude Provider"
+                    placeholder="My Provider"
                     required
                   />
 
-                  <Select
-                    label="Provider Type"
-                    value={formData.type}
-                    onChange={(e) => {
-                      const type = e.target.value as
-                        | 'official'
-                        | 'bedrock'
-                        | 'custom';
-                      setFormData({
-                        ...formData,
-                        type,
-                        endpoint: getDefaultEndpoint(type),
-                      });
-                    }}
-                  >
-                    <option value="official">Claude Official API</option>
-                    <option value="bedrock">AWS Bedrock</option>
-                    <option value="custom">Custom Endpoint</option>
-                  </Select>
+                    <Select
+                      label="Provider Type"
+                      value={formData.type}
+                      onChange={(e) => {
+                        const type = e.target.value as
+                          | 'official'
+                          | 'bedrock'
+                          | 'custom'
+                          | 'codex';
+                        setFormData({
+                          ...formData,
+                          type,
+                          endpoint: getDefaultEndpoint(type),
+                        });
+                      }}
+                    >
+                      <option value="official">Claude Official API</option>
+                      <option value="bedrock">AWS Bedrock</option>
+                      <option value="codex">Codex (OpenAI)</option>
+                      <option value="custom">Custom Endpoint</option>
+                    </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -641,13 +647,13 @@ export default function ProviderSettingsPage() {
                 </div>
 
                 <Input
-                  label={editingProvider ? 'API Key (leave empty to keep current)' : 'API Key'}
+                  label={editingProvider ? 'API Key or OAuth Token (leave empty to keep current)' : 'API Key or OAuth Token'}
                   type="password"
                   value={formData.apiKey}
                   onChange={(e) =>
                     setFormData({ ...formData, apiKey: e.target.value })
                   }
-                  placeholder="sk-ant-..."
+                  placeholder={formData.type === 'codex' ? 'sk-...' : 'sk-ant-...'}
                   required={!editingProvider}
                 />
 

@@ -38,19 +38,23 @@ const getCachedProvider = unstable_cache(
  */
 export async function selectProvidersForRequest(
   apiKey: ApiKey,
-  model?: string
+  model?: string,
+  allowedTypes?: string[]
 ): Promise<Provider[]> {
   const strategy: SelectionStrategyType =
     (apiKey.providerSelectionStrategy as SelectionStrategyType) || 'single';
+  const typeFilter = allowedTypes && allowedTypes.length > 0
+    ? (provider: Provider) => allowedTypes.includes(provider.type)
+    : () => true;
 
   // Backward compatibility: single strategy with providerId
   if (strategy === 'single' && apiKey.providerId) {
     const provider = await getCachedProvider(apiKey.providerId);
-    return provider ? [provider] : [];
+    return provider && typeFilter(provider) ? [provider] : [];
   }
 
   // Multi-provider mode: get provider pool from junction table
-  const pool = await getCachedProviderPool(apiKey.id);
+  const pool = (await getCachedProviderPool(apiKey.id)).filter(typeFilter);
 
   if (pool.length === 0) {
     console.warn(
@@ -60,7 +64,7 @@ export async function selectProvidersForRequest(
     // Fallback: try to use providerId if available
     if (apiKey.providerId) {
       const provider = await getCachedProvider(apiKey.providerId);
-      return provider ? [provider] : [];
+      return provider && typeFilter(provider) ? [provider] : [];
     }
 
     return [];

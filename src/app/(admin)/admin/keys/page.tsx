@@ -649,7 +649,7 @@ export default function AdminKeysPage() {
                 {providers.length > 0 && formData.provider && formData.providerSelectionStrategy === 'single' && (
                   <AlertCard variant="info">
                     <p className="text-sm">
-                      This API key will use the Claude API key configured in the selected provider.
+                      This API key will use the credential configured in the selected provider.
                       The rate limits below can be customized for this specific key.
                     </p>
                   </AlertCard>

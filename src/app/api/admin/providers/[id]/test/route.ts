@@ -37,28 +37,37 @@ export async function POST(
     const apiKey = await decryptApiKey(provider.apiKey);
 
     // Make a test request to the provider
-    const testUrl = `${provider.endpoint}/v1/messages`;
+    const testUrl = provider.type === 'codex'
+      ? `${provider.endpoint}/v1/models`
+      : `${provider.endpoint}/v1/messages`;
     const startTime = Date.now();
 
     try {
-      const response = await fetch(testUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-haiku-20240307',
-          max_tokens: 10,
-          messages: [
-            {
-              role: 'user',
-              content: 'Hi',
+      const response = await fetch(testUrl, provider.type === 'codex'
+        ? {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
             },
-          ],
-        }),
-      });
+          }
+        : {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-3-haiku-20240307',
+              max_tokens: 10,
+              messages: [
+                {
+                  role: 'user',
+                  content: 'Hi',
+                },
+              ],
+            }),
+          });
 
       const latency = Date.now() - startTime;
 

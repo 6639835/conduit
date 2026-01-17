@@ -134,14 +134,14 @@ export async function decrypt(encrypted: string): Promise<string> {
 }
 
 /**
- * Encrypt a Claude API key for storage in database
+ * Encrypt a provider credential for storage in database
  */
 export async function encryptApiKey(apiKey: string): Promise<string> {
   return await encrypt(apiKey);
 }
 
 /**
- * Decrypt a Claude API key from database
+ * Decrypt a provider credential from database
  */
 export async function decryptApiKey(encryptedKey: string): Promise<string> {
   return await decrypt(encryptedKey);
