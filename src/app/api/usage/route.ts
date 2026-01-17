@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { usageLogs } from '@/lib/db/schema';
 import { validateApiKeyFromHeaders } from '@/lib/auth/api-key';
 import { getRemainingQuota } from '@/lib/rate-limit/quota-checker';
-import { eq, and, gte, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, sql, desc } from 'drizzle-orm';
 import type { UsageResponse } from '@/types';
 
 // Configure edge runtime
@@ -40,13 +40,34 @@ export async function GET(request: NextRequest) {
 
     // Get date range (default: last 30 days)
     const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
+    const limitParam = searchParams.get('limit');
+    const logsLimit = Math.min(Math.max(parseInt(limitParam || '20', 10), 1), 100);
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const filters = [eq(usageLogs.apiKeyId, apiKey.id)];
 
-    const dateFilter = startDate
-      ? gte(usageLogs.timestamp, new Date(startDate))
-      : gte(usageLogs.timestamp, thirtyDaysAgo);
+    if (startDate) {
+      const parsedStart = new Date(startDate);
+      if (!Number.isNaN(parsedStart.getTime())) {
+        filters.push(gte(usageLogs.timestamp, parsedStart));
+      }
+    }
+
+    if (endDate) {
+      const parsedEnd = new Date(endDate);
+      if (!Number.isNaN(parsedEnd.getTime())) {
+        parsedEnd.setHours(23, 59, 59, 999);
+        filters.push(lte(usageLogs.timestamp, parsedEnd));
+      }
+    }
+
+    if (!startDate) {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      filters.push(gte(usageLogs.timestamp, thirtyDaysAgo));
+    }
+
+    const whereClause = and(...filters);
 
     // Query usage logs for statistics
     const usageData = await db
@@ -59,7 +80,7 @@ export async function GET(request: NextRequest) {
         totalCostUsd: sql<number>`coalesce(sum(${usageLogs.costUsd}), 0)`,
       })
       .from(usageLogs)
-      .where(and(eq(usageLogs.apiKeyId, apiKey.id), dateFilter))
+      .where(whereClause)
       .execute();
 
     // Query model breakdown
@@ -72,8 +93,44 @@ export async function GET(request: NextRequest) {
         costUsd: sql<number>`coalesce(sum(${usageLogs.costUsd}), 0)`,
       })
       .from(usageLogs)
-      .where(and(eq(usageLogs.apiKeyId, apiKey.id), dateFilter))
+      .where(whereClause)
       .groupBy(usageLogs.model)
+      .execute();
+
+    // Daily usage for charts
+    const dailyUsage = await db
+      .select({
+        date: sql<string>`date(${usageLogs.timestamp})`,
+        requests: sql<number>`count(*)`,
+        tokensInput: sql<number>`coalesce(sum(${usageLogs.tokensInput}), 0)`,
+        tokensOutput: sql<number>`coalesce(sum(${usageLogs.tokensOutput}), 0)`,
+        costUsd: sql<number>`coalesce(sum(${usageLogs.costUsd}), 0)`,
+      })
+      .from(usageLogs)
+      .where(whereClause)
+      .groupBy(sql`date(${usageLogs.timestamp})`)
+      .orderBy(sql`date(${usageLogs.timestamp})`)
+      .execute();
+
+    // Recent requests for table
+    const recentRequests = await db
+      .select({
+        id: usageLogs.id,
+        timestamp: usageLogs.timestamp,
+        method: usageLogs.method,
+        path: usageLogs.path,
+        model: usageLogs.model,
+        statusCode: usageLogs.statusCode,
+        tokensInput: usageLogs.tokensInput,
+        tokensOutput: usageLogs.tokensOutput,
+        costUsd: usageLogs.costUsd,
+        latencyMs: usageLogs.latencyMs,
+        errorMessage: usageLogs.errorMessage,
+      })
+      .from(usageLogs)
+      .where(whereClause)
+      .orderBy(desc(usageLogs.timestamp))
+      .limit(logsLimit)
       .execute();
 
     // Build model breakdown object
@@ -115,6 +172,16 @@ export async function GET(request: NextRequest) {
           totalTokensOutput: stats.totalTokensOutput,
           totalCostUsd: stats.totalCostUsd,
           modelBreakdown,
+          dailyUsage: dailyUsage.map((row) => ({
+            ...row,
+            date: typeof row.date === 'string'
+              ? row.date
+              : row.date.toISOString().split('T')[0],
+          })),
+          recentRequests: recentRequests.map((row) => ({
+            ...row,
+            timestamp: row.timestamp.toISOString(),
+          })),
           quotaRemaining,
           quotaLimits,
         },

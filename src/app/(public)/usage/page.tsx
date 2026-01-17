@@ -15,7 +15,16 @@ import {
   AlertCard,
   SkeletonMetricCard,
   DonutChart,
+  UsageChart,
 } from '@/components/ui';
+import {
+  Table,
+  TableHeader,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+} from '@/components/ui/table';
 import {
   Activity,
   ArrowUpRight,
@@ -23,11 +32,15 @@ import {
   DollarSign,
   Zap,
   Search,
+  Calendar,
+  Clock,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 
 export default function UsagePage() {
   const [apiKey, setApiKey] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [loading, setLoading] = useState(false);
   const [usageData, setUsageData] = useState<UsageResponse | null>(null);
 
@@ -36,7 +49,16 @@ export default function UsagePage() {
     setLoading(true);
 
     try {
-      const response = await fetch(`/api/usage?key=${encodeURIComponent(apiKey)}`);
+      const params = new URLSearchParams();
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      params.append('limit', '25');
+
+      const response = await fetch(`/api/usage?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+      });
       const data: UsageResponse = await response.json();
 
       if (!data.success) {
@@ -66,6 +88,14 @@ export default function UsagePage() {
       }))
     : [];
 
+  const dailyUsage = usageData?.usage?.dailyUsage || [];
+  const requestTrendData = dailyUsage.map((day) => ({
+    date: day.date,
+    value: day.requests,
+  }));
+
+  const recentRequests = usageData?.usage?.recentRequests || [];
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
@@ -79,7 +109,7 @@ export default function UsagePage() {
 
         <div className="space-y-6">
           {/* Key Search Form */}
-          <Card className="p-6">
+          <Card className="p-6" id="search">
             <form onSubmit={handleSearch} className="space-y-4">
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
@@ -99,6 +129,21 @@ export default function UsagePage() {
                   </Button>
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  label="Start Date"
+                />
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  label="End Date"
+                />
+              </div>
             </form>
           </Card>
 
@@ -114,7 +159,7 @@ export default function UsagePage() {
           {/* Dashboard Overview - Show key metrics if data available */}
           {usageData?.usage && !loading && (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" id="usage">
                 <MetricCard
                   title="Total Requests"
                   value={usageData.usage.totalRequests.toLocaleString()}
@@ -146,6 +191,15 @@ export default function UsagePage() {
                   icon={ArrowDownRight}
                 />
               </div>
+
+              {requestTrendData.length > 0 && (
+                <UsageChart
+                  data={requestTrendData}
+                  title="Requests Over Time"
+                  description="Daily request volume for the selected range"
+                  height={280}
+                />
+              )}
 
               {/* Model Breakdown - Two column layout */}
               {Object.keys(usageData.usage.modelBreakdown).length > 0 && (
@@ -193,7 +247,7 @@ export default function UsagePage() {
               )}
 
               {/* Quota Section */}
-              <div className="space-y-4">
+              <div className="space-y-4" id="quota">
                 <h2 className="text-2xl font-bold">Quota Usage</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {usageData.usage.quotaRemaining.requestsPerMinute !== null &&
@@ -246,6 +300,83 @@ export default function UsagePage() {
                     variant="warning"
                   />
                 )}
+              </div>
+
+              <div className="space-y-4" id="requests">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold">Recent Requests</h2>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Clock className="h-4 w-4" />
+                    Last {recentRequests.length} requests
+                  </div>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      Request Log
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {recentRequests.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">
+                        No requests found for the selected range.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Time</TableHead>
+                              <TableHead>Model</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Latency</TableHead>
+                              <TableHead>Tokens</TableHead>
+                              <TableHead>Cost</TableHead>
+                              <TableHead>Path</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {recentRequests.map((request) => (
+                              <TableRow key={request.id}>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {new Date(request.timestamp).toLocaleString()}
+                                </TableCell>
+                                <TableCell className="text-sm font-medium">
+                                  {request.model}
+                                </TableCell>
+                                <TableCell>
+                                  <span
+                                    className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
+                                      request.statusCode < 400
+                                        ? 'bg-success/20 text-success'
+                                        : 'bg-destructive/20 text-destructive'
+                                    }`}
+                                  >
+                                    {request.statusCode}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {request.latencyMs ? `${request.latencyMs} ms` : '-'}
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {(request.tokensInput + request.tokensOutput).toLocaleString()}
+                                </TableCell>
+                                <TableCell className="text-sm font-medium">
+                                  {formatCost(request.costUsd)}
+                                </TableCell>
+                                <TableCell className="text-xs text-muted-foreground">
+                                  {request.path}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             </>
           )}

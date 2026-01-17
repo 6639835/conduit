@@ -88,6 +88,28 @@ export interface UsageStats {
   }>;
 }
 
+export interface UsageDailyStats {
+  date: string;
+  requests: number;
+  tokensInput: number;
+  tokensOutput: number;
+  costUsd: number;
+}
+
+export interface UsageRecentRequest {
+  id: string;
+  timestamp: string;
+  method: string;
+  path: string;
+  model: string;
+  statusCode: number;
+  tokensInput: number;
+  tokensOutput: number;
+  costUsd: number;
+  latencyMs: number | null;
+  errorMessage: string | null;
+}
+
 export interface UsageQueryParams {
   apiKeyId?: string;
   startDate?: string;
@@ -108,6 +130,8 @@ export interface UsageResponse {
       requestsPerDay: number | null;
       tokensPerDay: number | null;
     };
+    dailyUsage?: UsageDailyStats[];
+    recentRequests?: UsageRecentRequest[];
   };
   error?: string;
 }

@@ -15,6 +15,7 @@ import {
   Server,
   FileText,
   Bell,
+  Shield,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -41,7 +42,9 @@ const adminNavItems: NavItem[] = [
   { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
   { label: "Providers", href: "/admin/providers", icon: Server },
   { label: "Users", href: "/admin/users", icon: Users },
-  { label: "Logs", href: "/admin/logs", icon: FileText },
+  { label: "Request Logs", href: "/admin/logs", icon: FileText },
+  { label: "Audit Logs", href: "/admin/audit", icon: Shield },
+  { label: "System Status", href: "/admin/status", icon: Activity },
   { label: "Notifications", href: "/admin/notifications", icon: Bell },
 ];
 
@@ -74,11 +77,12 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
 
           {navItems.map((item) => {
             const Icon = item.icon;
+            const itemPath = item.href.split("#")[0];
             const isActive =
-              pathname === item.href ||
-              (item.href !== "/admin" &&
-                item.href !== "/usage" &&
-                pathname?.startsWith(item.href));
+              pathname === itemPath ||
+              (itemPath !== "/admin" &&
+                itemPath !== "/usage" &&
+                pathname?.startsWith(itemPath));
 
             return (
               <Link

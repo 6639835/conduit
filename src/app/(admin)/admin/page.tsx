@@ -19,6 +19,8 @@ import {
   Activity,
   DollarSign,
   ArrowRight,
+  FileText,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface QuickStats {
@@ -157,6 +159,20 @@ export default function AdminDashboard() {
       description: 'Manage users and their permissions',
       icon: Users,
       color: 'bg-violet-500/10 text-violet-500',
+    },
+    {
+      href: '/admin/logs',
+      title: 'Request Logs',
+      description: 'Inspect traffic, errors, and latency details',
+      icon: FileText,
+      color: 'bg-amber-500/10 text-amber-500',
+    },
+    {
+      href: '/admin/status',
+      title: 'System Status',
+      description: 'Check health of providers and dependencies',
+      icon: ShieldCheck,
+      color: 'bg-emerald-500/10 text-emerald-500',
     },
   ];
 
