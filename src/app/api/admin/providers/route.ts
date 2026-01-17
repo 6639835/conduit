@@ -7,7 +7,7 @@ import { checkAuth } from '@/lib/auth/middleware';
 
 export interface CreateProviderRequest {
   name: string;
-  type: 'official' | 'bedrock' | 'custom' | 'codex';
+  type: 'official' | 'bedrock' | 'custom' | 'codex' | 'openai' | 'gemini';
   endpoint?: string;
   apiKey: string;
   costMultiplier?: number;
@@ -61,7 +61,10 @@ function getDefaultEndpoint(type: string): string {
     case 'bedrock':
       return 'https://bedrock-runtime.us-east-1.amazonaws.com';
     case 'codex':
+    case 'openai':
       return 'https://api.openai.com';
+    case 'gemini':
+      return 'https://generativelanguage.googleapis.com';
     default:
       return '';
   }
@@ -89,11 +92,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate provider type
-    if (!['official', 'bedrock', 'custom', 'codex'].includes(body.type)) {
+    if (!['official', 'bedrock', 'custom', 'codex', 'openai', 'gemini'].includes(body.type)) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Invalid provider type. Must be "official", "bedrock", "custom", or "codex"',
+          error: 'Invalid provider type. Must be "official", "bedrock", "custom", "codex", "openai", or "gemini"',
         } as CreateProviderResponse,
         { status: 400 }
       );

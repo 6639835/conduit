@@ -32,7 +32,7 @@ import { toast } from '@/lib/toast';
 interface Provider {
   id: string;
   name: string;
-  type: 'official' | 'bedrock' | 'custom' | 'codex';
+  type: 'official' | 'bedrock' | 'custom' | 'codex' | 'openai' | 'gemini';
   endpoint: string;
   isActive: boolean;
   isDefault: boolean;
@@ -60,7 +60,7 @@ export default function ProviderSettingsPage() {
 
   const [formData, setFormData] = useState({
     name: '',
-    type: 'official' as 'official' | 'bedrock' | 'custom' | 'codex',
+    type: 'official' as 'official' | 'bedrock' | 'custom' | 'codex' | 'openai' | 'gemini',
     endpoint: '',
     apiKey: '',
     costMultiplier: 1.0,
@@ -97,9 +97,12 @@ export default function ProviderSettingsPage() {
       case 'official':
         return 'https://api.anthropic.com';
       case 'bedrock':
-        return 'https://bedrock.us-east-1.amazonaws.com';
+        return 'https://bedrock-runtime.us-east-1.amazonaws.com';
       case 'codex':
+      case 'openai':
         return 'https://api.openai.com';
+      case 'gemini':
+        return 'https://generativelanguage.googleapis.com';
       default:
         return '';
     }
@@ -427,6 +430,10 @@ export default function ProviderSettingsPage() {
             ? 'AWS Bedrock'
             : row.type === 'codex'
             ? 'Codex (OpenAI)'
+            : row.type === 'openai'
+            ? 'OpenAI (ChatGPT)'
+            : row.type === 'gemini'
+            ? 'Gemini'
             : 'Custom'}
         </span>
       ),
@@ -607,7 +614,7 @@ export default function ProviderSettingsPage() {
                     required
                   />
 
-                    <Select
+                  <Select
                       label="Provider Type"
                       value={formData.type}
                       onChange={(e) => {
@@ -615,7 +622,9 @@ export default function ProviderSettingsPage() {
                           | 'official'
                           | 'bedrock'
                           | 'custom'
-                          | 'codex';
+                          | 'codex'
+                          | 'openai'
+                          | 'gemini';
                         setFormData({
                           ...formData,
                           type,
@@ -626,6 +635,8 @@ export default function ProviderSettingsPage() {
                       <option value="official">Claude Official API</option>
                       <option value="bedrock">AWS Bedrock</option>
                       <option value="codex">Codex (OpenAI)</option>
+                      <option value="openai">OpenAI (ChatGPT)</option>
+                      <option value="gemini">Gemini</option>
                       <option value="custom">Custom Endpoint</option>
                     </Select>
                 </div>
@@ -653,7 +664,7 @@ export default function ProviderSettingsPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, apiKey: e.target.value })
                   }
-                  placeholder={formData.type === 'codex' ? 'sk-...' : 'sk-ant-...'}
+                  placeholder={formData.type === 'codex' || formData.type === 'openai' ? 'sk-...' : formData.type === 'gemini' ? 'AIza...' : 'sk-ant-...'}
                   required={!editingProvider}
                 />
 

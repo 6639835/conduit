@@ -1,10 +1,10 @@
-# Conduit - Claude & Codex API Gateway with Analytics
+# Conduit - Claude, OpenAI (ChatGPT), Gemini API Gateway with Analytics
 
-A transparent, edge-first API gateway for Claude AI with built-in usage analytics, rate limiting, and beautiful dashboards.
+A transparent, edge-first API gateway for Claude, OpenAI, and Gemini with built-in usage analytics, rate limiting, and beautiful dashboards.
 
 ## Features
 
-- **Transparent Proxy**: Forwards Claude and Codex API requests without wrapping or modifying the API
+- **Transparent Proxy**: Forwards Claude, OpenAI, and Gemini API requests without wrapping or modifying the API
 - **Edge Runtime**: Global distribution with Vercel Edge for ultra-low latency
 - **Rate Limiting**: Per-minute and per-day limits enforced at the edge with Vercel KV
 - **Quota Management**: Token-based quotas with real-time tracking
@@ -98,15 +98,26 @@ curl -X POST http://localhost:3000/api/claude/v1/messages \
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
-### Make Codex API Requests (OpenAI Responses)
+### Make OpenAI API Requests (ChatGPT / Responses)
 
 ```bash
-curl -X POST http://localhost:3000/api/codex/v1/responses \
+curl -X POST http://localhost:3000/api/openai/v1/responses \
   -H "Authorization: Bearer sk-cond_xxx" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5.1-codex-mini",
     "input": "Explain what this repository does."
+  }'
+```
+
+### Make Gemini API Requests
+
+```bash
+curl -X POST http://localhost:3000/api/gemini/v1beta/models/gemini-1.5-flash:generateContent \
+  -H "Authorization: Bearer sk-cond_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contents": [{ "role": "user", "parts": [{ "text": "Hello!" }] }]
   }'
 ```
 ```
@@ -128,6 +139,8 @@ src/
 │   ├── (admin)/admin/           # Admin dashboard
 │   ├── api/
 │   │   ├── claude/[...path]/    # Main proxy
+│   │   ├── openai/[...path]/    # OpenAI proxy
+│   │   ├── gemini/[...path]/    # Gemini proxy
 │   │   ├── admin/keys/          # Key management
 │   │   └── usage/               # Usage API
 │   └── page.tsx                 # Landing

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKeyFromHeaders } from '@/lib/auth/api-key';
-import { isValidOpenAIPath } from '@/lib/proxy/openai';
+import { isValidGeminiPath, extractGeminiModelFromPath } from '@/lib/proxy/gemini';
 import { cleanResponseHeaders } from '@/lib/proxy/claude-official';
-import { createOpenAIStreamingResponse, isOpenAIStreamingResponse, parseOpenAINonStreamingResponse } from '@/lib/proxy/openai-streaming';
+import { createGeminiStreamingResponse, isGeminiStreamingResponse, parseGeminiNonStreamingResponse } from '@/lib/proxy/gemini-streaming';
 import { checkRateLimit, addRateLimitHeaders, createRateLimitResponse } from '@/lib/rate-limit';
 import { checkQuota, createQuotaExceededResponse, incrementTokenUsage } from '@/lib/rate-limit/quota-checker';
 import { logUsageAsync, extractRequestMetadata } from '@/lib/analytics/logger';
@@ -25,8 +25,8 @@ const scopesSchema = z.object({
 }).nullable();
 
 /**
- * Catch-all proxy route: /api/codex/[...path]
- * Forwards OpenAI API requests (Responses API preferred)
+ * Catch-all proxy route: /api/gemini/[...path]
+ * Forwards Google Gemini API requests
  */
 async function handleRequest(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const startTime = Date.now();
@@ -34,10 +34,12 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
   try {
     const { path: pathSegments } = await context.params;
     const path = `/${pathSegments.join('/')}`;
+    const requestUrl = new URL(request.url);
+    const pathWithQuery = `${path}${requestUrl.search}`;
 
     const requestMetadata = extractRequestMetadata(request.headers);
 
-    if (!isValidOpenAIPath(path)) {
+    if (!isValidGeminiPath(path)) {
       return NextResponse.json(
         {
           error: {
@@ -177,6 +179,9 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
+    const requestedModel = extractGeminiModelFromPath(path)
+      || (body && typeof body === 'object' && 'model' in body ? (body.model as string) : undefined);
+
     if (apiKey.scopes) {
       const scopesValidation = scopesSchema.safeParse(apiKey.scopes);
       if (!scopesValidation.success) {
@@ -209,8 +214,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         }
       }
 
-      if (body && scopes && scopes.models && scopes.models.length > 0) {
-        const requestedModel = (body as { model?: string }).model;
+      if (scopes && scopes.models && scopes.models.length > 0) {
         if (requestedModel && !scopes.models.includes(requestedModel)) {
           return NextResponse.json(
             {
@@ -225,15 +229,14 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    const requestedModel = body && typeof body === 'object' && 'model' in body ? (body as { model?: string }).model : undefined;
-    const selectedProviders = await selectProvidersForRequest(apiKey, requestedModel, ['codex', 'openai']);
+    const selectedProviders = await selectProvidersForRequest(apiKey, requestedModel, ['gemini']);
 
     if (!selectedProviders || selectedProviders.length === 0) {
       return NextResponse.json(
         {
           error: {
             type: 'configuration_error',
-            message: 'No available OpenAI providers for this API key. Please contact support.',
+            message: 'No available Gemini providers for this API key. Please contact support.',
           },
         },
         { status: 503 }
@@ -253,7 +256,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     }
 
     if (body && primaryProvider.cacheEnabled && isCacheable(body)) {
-      const cacheKey = await generateCacheKey((body as { model?: string }).model || 'codex', body as Record<string, unknown>);
+      const cacheKey = await generateCacheKey(requestedModel || 'gemini', body as Record<string, unknown>);
       const cachedResponse = await getCachedResponse(cacheKey);
 
       if (cachedResponse) {
@@ -272,7 +275,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     const upstreamResponse = await makeProxyRequestWithStrategy(
       apiKey,
       selectedProviders,
-      path,
+      pathWithQuery,
       request.method,
       request.headers,
       body
@@ -280,71 +283,76 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
 
     const latencyMs = Date.now() - startTime;
 
-    if (isOpenAIStreamingResponse(upstreamResponse)) {
-      const streamResponse = await createOpenAIStreamingResponse(
+    if (isGeminiStreamingResponse(upstreamResponse)) {
+      const streamingResponse = await createGeminiStreamingResponse(
         upstreamResponse,
         async (usageData) => {
+          const model = usageData.model || requestedModel || 'gemini';
           await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
-
-          logUsageAsync({
+          await logUsageAsync({
             apiKeyId: apiKey.id,
             method: request.method,
             path,
-            model: usageData.model,
+            model,
             tokensInput: usageData.tokensInput,
             tokensOutput: usageData.tokensOutput,
             latencyMs,
             statusCode: upstreamResponse.status,
-            ...requestMetadata,
+            userAgent: requestMetadata.userAgent,
+            ipAddress: requestMetadata.ipAddress,
+            country: requestMetadata.country,
           });
         }
       );
 
-      const headers = cleanResponseHeaders(streamResponse.headers);
+      const headers = cleanResponseHeaders(streamingResponse.headers);
+      headers.set('X-Cache', 'MISS');
       addRateLimitHeaders(headers, rateLimitResult);
 
-      return new Response(streamResponse.body, {
-        status: streamResponse.status,
-        statusText: streamResponse.statusText,
+      return new Response(streamingResponse.body, {
+        status: streamingResponse.status,
+        statusText: streamingResponse.statusText,
         headers,
       });
     }
 
-    const { body: responseBody, usageData } = await parseOpenAINonStreamingResponse(upstreamResponse);
+    const { body: responseBody, usageData } = await parseGeminiNonStreamingResponse(upstreamResponse);
 
     if (usageData) {
+      const model = usageData.model || requestedModel || 'gemini';
       await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
-
-      logUsageAsync({
+      await logUsageAsync({
         apiKeyId: apiKey.id,
         method: request.method,
         path,
-        model: usageData.model,
+        model,
         tokensInput: usageData.tokensInput,
         tokensOutput: usageData.tokensOutput,
         latencyMs,
         statusCode: upstreamResponse.status,
-        ...requestMetadata,
+        userAgent: requestMetadata.userAgent,
+        ipAddress: requestMetadata.ipAddress,
+        country: requestMetadata.country,
       });
+    } else {
+      await logUsageAsync({
+        apiKeyId: apiKey.id,
+        method: request.method,
+        path,
+        model: requestedModel || 'gemini',
+        tokensInput: 0,
+        tokensOutput: 0,
+        latencyMs,
+        statusCode: upstreamResponse.status,
+        userAgent: requestMetadata.userAgent,
+        ipAddress: requestMetadata.ipAddress,
+        country: requestMetadata.country,
+      });
+    }
 
-      if (
-        body &&
-        primaryProvider.cacheEnabled &&
-        isCacheable(body) &&
-        upstreamResponse.status === 200
-      ) {
-        const cacheKey = await generateCacheKey(usageData.model, body as Record<string, unknown>);
-        const ttl = primaryProvider.cacheTtlSeconds || 300;
-
-        setCachedResponse(
-          cacheKey,
-          responseBody,
-          usageData.model,
-          usageData.tokensInput,
-          usageData.tokensOutput,
-          ttl
-        ).catch((err) => console.error('Cache storage error:', err));
-      }
+    if (body && primaryProvider.cacheEnabled && isCacheable(body) && upstreamResponse.ok) {
+      const cacheKey = await generateCacheKey(requestedModel || 'gemini', body as Record<string, unknown>);
+      setCachedResponse(cacheKey, responseBody).catch((err) => console.error('Cache storage error:', err));
     }
 
     const headers = cleanResponseHeaders(upstreamResponse.headers);
@@ -368,7 +376,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
           transformableResponse,
           apiKey.transformationRules as TransformationRule[],
           {
-            model: usageData?.model,
+            model: usageData?.model || requestedModel || undefined,
             endpoint: path,
           }
         );
@@ -391,7 +399,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       headers: finalHeaders,
     });
   } catch (error) {
-    console.error('Codex proxy error:', error);
+    console.error('Gemini proxy error:', error);
 
     if (error instanceof UnauthorizedError) {
       return NextResponse.json(

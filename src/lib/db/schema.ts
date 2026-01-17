@@ -27,7 +27,7 @@ export const admins = pgTable('admins', {
 export const providers = pgTable('providers', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
-  type: varchar('type', { length: 20 }).notNull().default('official'), // 'official', 'bedrock', 'custom', 'codex'
+  type: varchar('type', { length: 20 }).notNull().default('official'), // 'official', 'bedrock', 'custom', 'codex', 'openai', 'gemini'
   endpoint: text('endpoint').notNull(),
   apiKey: text('api_key').notNull(), // Encrypted provider credential (API key or OAuth token)
 

@@ -37,17 +37,26 @@ export async function POST(
     const apiKey = await decryptApiKey(provider.apiKey);
 
     // Make a test request to the provider
-    const testUrl = provider.type === 'codex'
+    const testUrl = provider.type === 'codex' || provider.type === 'openai'
+      ? `${provider.endpoint}/v1/models`
+      : provider.type === 'gemini'
       ? `${provider.endpoint}/v1/models`
       : `${provider.endpoint}/v1/messages`;
     const startTime = Date.now();
 
     try {
-      const response = await fetch(testUrl, provider.type === 'codex'
+      const response = await fetch(testUrl, provider.type === 'codex' || provider.type === 'openai'
         ? {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${apiKey}`,
+            },
+          }
+        : provider.type === 'gemini'
+        ? {
+            method: 'GET',
+            headers: {
+              'x-goog-api-key': apiKey,
             },
           }
         : {

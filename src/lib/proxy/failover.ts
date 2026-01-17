@@ -4,6 +4,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { decrypt } from '../utils/crypto';
 import { proxyToClaudeOfficial } from './claude-official';
 import { proxyToOpenAI } from './openai';
+import { proxyToGemini } from './gemini';
 import { incrementProviderLoad, decrementProviderLoad } from './load-tracker';
 
 export interface Provider {
@@ -279,8 +280,19 @@ export async function makeProxyRequestWithStrategy(
       // Try the request with retry logic
       const response = await withRetry(
         async () => {
-          if (provider.type === 'codex') {
+          if (provider.type === 'codex' || provider.type === 'openai') {
             return await proxyToOpenAI({
+              apiKey,
+              provider,
+              path,
+              method,
+              headers,
+              body,
+            });
+          }
+
+          if (provider.type === 'gemini') {
+            return await proxyToGemini({
               apiKey,
               provider,
               path,
