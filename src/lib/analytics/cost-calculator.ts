@@ -1,7 +1,7 @@
 /**
- * Cost calculation for Claude API usage
- * Pricing as of January 2025 (update as needed)
- * All prices in USD cents per token
+ * Cost calculation for Claude, OpenAI, and Gemini API usage
+ * Pricing dates vary by provider; update as needed
+ * All prices in USD per 1M tokens
  */
 
 export interface ModelPricing {
@@ -9,10 +9,73 @@ export interface ModelPricing {
   outputPricePerMillion: number; // USD per 1M tokens
 }
 
-// Claude model pricing (as of January 2025)
-// Source: https://www.anthropic.com/pricing
+// Provider pricing tables (USD per 1M tokens).
+// Notes:
+// - OpenAI rates below use Standard tier text-token pricing for text models.
+// - OpenAI image/audio models use the image/audio token pricing tables.
+// - Gemini rates use standard text pricing unless noted; some models have higher rates for long prompts or audio.
+// Sources: Anthropic pricing + model IDs, OpenAI API pricing, Gemini API pricing.
 const MODEL_PRICING: Record<string, ModelPricing> = {
-  // Claude 3.5 Sonnet
+  // Anthropic Claude 4.5 (pricing from models overview; input/output per MTok)
+  'claude-sonnet-4-5-20250929': {
+    inputPricePerMillion: 3.00,
+    outputPricePerMillion: 15.00,
+  },
+  'claude-haiku-4-5-20251001': {
+    inputPricePerMillion: 1.00,
+    outputPricePerMillion: 5.00,
+  },
+  'claude-opus-4-5-20251101': {
+    inputPricePerMillion: 5.00,
+    outputPricePerMillion: 25.00,
+  },
+  // Claude 4.5 aliases
+  'claude-sonnet-4-5': {
+    inputPricePerMillion: 3.00,
+    outputPricePerMillion: 15.00,
+  },
+  'claude-haiku-4-5': {
+    inputPricePerMillion: 1.00,
+    outputPricePerMillion: 5.00,
+  },
+  'claude-opus-4-5': {
+    inputPricePerMillion: 5.00,
+    outputPricePerMillion: 25.00,
+  },
+
+  // Anthropic Claude 4.x / 3.x (pricing from Anthropic pricing table)
+  'claude-opus-4-1-20250805': {
+    inputPricePerMillion: 15.00,
+    outputPricePerMillion: 75.00,
+  },
+  'claude-opus-4-1': {
+    inputPricePerMillion: 15.00,
+    outputPricePerMillion: 75.00,
+  },
+  'claude-opus-4-20250514': {
+    inputPricePerMillion: 15.00,
+    outputPricePerMillion: 75.00,
+  },
+  'claude-opus-4-0': {
+    inputPricePerMillion: 15.00,
+    outputPricePerMillion: 75.00,
+  },
+  'claude-sonnet-4-20250514': {
+    inputPricePerMillion: 3.00,
+    outputPricePerMillion: 15.00,
+  },
+  'claude-sonnet-4-0': {
+    inputPricePerMillion: 3.00,
+    outputPricePerMillion: 15.00,
+  },
+  'claude-3-7-sonnet-20250219': {
+    inputPricePerMillion: 3.00,
+    outputPricePerMillion: 15.00,
+  },
+  'claude-3-7-sonnet-latest': {
+    inputPricePerMillion: 3.00,
+    outputPricePerMillion: 15.00,
+  },
   'claude-3-5-sonnet-20241022': {
     inputPricePerMillion: 3.00,
     outputPricePerMillion: 15.00,
@@ -21,30 +84,100 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
     inputPricePerMillion: 3.00,
     outputPricePerMillion: 15.00,
   },
-
-  // Claude 3.5 Haiku
-  'claude-3-5-haiku-20241022': {
-    inputPricePerMillion: 1.00,
-    outputPricePerMillion: 5.00,
+  'claude-3-5-sonnet-latest': {
+    inputPricePerMillion: 3.00,
+    outputPricePerMillion: 15.00,
   },
-
-  // Claude 3 Opus
+  'claude-3-5-haiku-20241022': {
+    inputPricePerMillion: 0.80,
+    outputPricePerMillion: 4.00,
+  },
+  'claude-3-5-haiku-latest': {
+    inputPricePerMillion: 0.80,
+    outputPricePerMillion: 4.00,
+  },
   'claude-3-opus-20240229': {
     inputPricePerMillion: 15.00,
     outputPricePerMillion: 75.00,
   },
-
-  // Claude 3 Sonnet
   'claude-3-sonnet-20240229': {
     inputPricePerMillion: 3.00,
     outputPricePerMillion: 15.00,
   },
-
-  // Claude 3 Haiku
   'claude-3-haiku-20240307': {
     inputPricePerMillion: 0.25,
     outputPricePerMillion: 1.25,
   },
+
+  // OpenAI text models (Standard tier text tokens)
+  'gpt-5.2': { inputPricePerMillion: 1.75, outputPricePerMillion: 14.00 },
+  'gpt-5.1': { inputPricePerMillion: 1.25, outputPricePerMillion: 10.00 },
+  'gpt-5': { inputPricePerMillion: 1.25, outputPricePerMillion: 10.00 },
+  'gpt-5-mini': { inputPricePerMillion: 0.25, outputPricePerMillion: 2.00 },
+  'gpt-5-nano': { inputPricePerMillion: 0.05, outputPricePerMillion: 0.40 },
+  'gpt-5.2-chat-latest': { inputPricePerMillion: 1.75, outputPricePerMillion: 14.00 },
+  'gpt-5.1-chat-latest': { inputPricePerMillion: 1.25, outputPricePerMillion: 10.00 },
+  'gpt-5-chat-latest': { inputPricePerMillion: 1.25, outputPricePerMillion: 10.00 },
+  'gpt-5.2-codex': { inputPricePerMillion: 1.75, outputPricePerMillion: 14.00 },
+  'gpt-5.1-codex-max': { inputPricePerMillion: 1.25, outputPricePerMillion: 10.00 },
+  'gpt-5.1-codex': { inputPricePerMillion: 1.25, outputPricePerMillion: 10.00 },
+  'gpt-5-codex': { inputPricePerMillion: 1.25, outputPricePerMillion: 10.00 },
+  'gpt-5.2-pro': { inputPricePerMillion: 21.00, outputPricePerMillion: 168.00 },
+  'gpt-5-pro': { inputPricePerMillion: 15.00, outputPricePerMillion: 120.00 },
+  'gpt-4.1': { inputPricePerMillion: 2.00, outputPricePerMillion: 8.00 },
+  'gpt-4.1-mini': { inputPricePerMillion: 0.40, outputPricePerMillion: 1.60 },
+  'gpt-4.1-nano': { inputPricePerMillion: 0.10, outputPricePerMillion: 0.40 },
+  'gpt-4o': { inputPricePerMillion: 2.50, outputPricePerMillion: 10.00 },
+  'gpt-4o-2024-05-13': { inputPricePerMillion: 5.00, outputPricePerMillion: 15.00 },
+  'gpt-4o-mini': { inputPricePerMillion: 0.15, outputPricePerMillion: 0.60 },
+  'o1': { inputPricePerMillion: 15.00, outputPricePerMillion: 60.00 },
+  'o1-pro': { inputPricePerMillion: 150.00, outputPricePerMillion: 600.00 },
+  'o3-pro': { inputPricePerMillion: 20.00, outputPricePerMillion: 80.00 },
+  'o3': { inputPricePerMillion: 2.00, outputPricePerMillion: 8.00 },
+  'o3-deep-research': { inputPricePerMillion: 10.00, outputPricePerMillion: 40.00 },
+  'o4-mini': { inputPricePerMillion: 1.10, outputPricePerMillion: 4.40 },
+  'o4-mini-deep-research': { inputPricePerMillion: 2.00, outputPricePerMillion: 8.00 },
+  'o3-mini': { inputPricePerMillion: 1.10, outputPricePerMillion: 4.40 },
+  'o1-mini': { inputPricePerMillion: 1.10, outputPricePerMillion: 4.40 },
+  'gpt-5.1-codex-mini': { inputPricePerMillion: 0.25, outputPricePerMillion: 2.00 },
+  'codex-mini-latest': { inputPricePerMillion: 1.50, outputPricePerMillion: 6.00 },
+  'gpt-5-search-api': { inputPricePerMillion: 1.25, outputPricePerMillion: 10.00 },
+  'gpt-4o-mini-search-preview': { inputPricePerMillion: 0.15, outputPricePerMillion: 0.60 },
+  'gpt-4o-search-preview': { inputPricePerMillion: 2.50, outputPricePerMillion: 10.00 },
+  'computer-use-preview': { inputPricePerMillion: 3.00, outputPricePerMillion: 12.00 },
+
+  // OpenAI image token models (image tokens)
+  'gpt-image-1.5': { inputPricePerMillion: 8.00, outputPricePerMillion: 32.00 },
+  'chatgpt-image-latest': { inputPricePerMillion: 8.00, outputPricePerMillion: 32.00 },
+  'gpt-image-1': { inputPricePerMillion: 10.00, outputPricePerMillion: 40.00 },
+  'gpt-image-1-mini': { inputPricePerMillion: 2.50, outputPricePerMillion: 8.00 },
+
+  // OpenAI audio token models (audio tokens)
+  'gpt-realtime': { inputPricePerMillion: 32.00, outputPricePerMillion: 64.00 },
+  'gpt-realtime-mini': { inputPricePerMillion: 10.00, outputPricePerMillion: 20.00 },
+  'gpt-4o-realtime-preview': { inputPricePerMillion: 40.00, outputPricePerMillion: 80.00 },
+  'gpt-4o-mini-realtime-preview': { inputPricePerMillion: 10.00, outputPricePerMillion: 20.00 },
+  'gpt-audio': { inputPricePerMillion: 32.00, outputPricePerMillion: 64.00 },
+  'gpt-audio-mini': { inputPricePerMillion: 10.00, outputPricePerMillion: 20.00 },
+  'gpt-4o-audio-preview': { inputPricePerMillion: 40.00, outputPricePerMillion: 80.00 },
+  'gpt-4o-mini-audio-preview': { inputPricePerMillion: 10.00, outputPricePerMillion: 20.00 },
+
+  // Gemini text models (standard text pricing)
+  'gemini-3-flash-preview': { inputPricePerMillion: 0.50, outputPricePerMillion: 3.00 },
+  'gemini-2.5-pro': { inputPricePerMillion: 1.25, outputPricePerMillion: 10.00 },
+  'gemini-2.5-flash': { inputPricePerMillion: 0.30, outputPricePerMillion: 2.50 },
+  'gemini-2.5-flash-preview-09-2025': { inputPricePerMillion: 0.30, outputPricePerMillion: 2.50 },
+  'gemini-2.5-flash-lite': { inputPricePerMillion: 0.10, outputPricePerMillion: 0.40 },
+  'gemini-2.5-flash-lite-preview-09-2025': { inputPricePerMillion: 0.10, outputPricePerMillion: 0.40 },
+  'gemini-2.0-flash': { inputPricePerMillion: 0.10, outputPricePerMillion: 0.40 },
+  'gemini-2.0-flash-lite': { inputPricePerMillion: 0.075, outputPricePerMillion: 0.30 },
+  'gemini-2.5-computer-use-preview-10-2025': { inputPricePerMillion: 1.25, outputPricePerMillion: 10.00 },
+
+  // Gemini audio/image models (audio/image token pricing where provided)
+  'gemini-2.5-flash-native-audio-preview-12-2025': { inputPricePerMillion: 3.00, outputPricePerMillion: 12.00 },
+  'gemini-2.5-flash-preview-tts': { inputPricePerMillion: 0.50, outputPricePerMillion: 10.00 },
+  'gemini-2.5-pro-preview-tts': { inputPricePerMillion: 1.00, outputPricePerMillion: 20.00 },
+  'gemini-2.5-flash-image': { inputPricePerMillion: 0.30, outputPricePerMillion: 30.00 },
 
   // Default pricing (fallback for unknown models)
   default: {
