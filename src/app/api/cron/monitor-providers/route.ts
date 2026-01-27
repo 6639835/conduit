@@ -56,28 +56,48 @@ export async function POST(request: NextRequest) {
         // Decrypt API key
         const apiKey = await decryptApiKey(provider.apiKey);
 
-        // Make a test request to the provider
-        const testUrl = `${provider.endpoint}/v1/messages`;
+        // Make a test request to the provider based on provider type
+        const testUrl = provider.type === 'codex' || provider.type === 'openai'
+          ? `${provider.endpoint}/v1/models`
+          : provider.type === 'gemini'
+          ? `${provider.endpoint}/v1/models`
+          : `${provider.endpoint}/v1/messages`;
 
-        const response = await fetch(testUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: 'claude-3-haiku-20240307',
-            max_tokens: 10,
-            messages: [
-              {
-                role: 'user',
-                content: 'Hi',
+        const response = await fetch(testUrl, provider.type === 'codex' || provider.type === 'openai'
+          ? {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
               },
-            ],
-          }),
-          signal: AbortSignal.timeout(10000), // 10 second timeout
-        });
+              signal: AbortSignal.timeout(10000), // 10 second timeout
+            }
+          : provider.type === 'gemini'
+          ? {
+              method: 'GET',
+              headers: {
+                'x-goog-api-key': apiKey,
+              },
+              signal: AbortSignal.timeout(10000), // 10 second timeout
+            }
+          : {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: 'claude-3-haiku-20240307',
+                max_tokens: 10,
+                messages: [
+                  {
+                    role: 'user',
+                    content: 'Hi',
+                  },
+                ],
+              }),
+              signal: AbortSignal.timeout(10000), // 10 second timeout
+            });
 
         const isHealthy = response.ok || response.status === 400;
 

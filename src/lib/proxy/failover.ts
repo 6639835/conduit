@@ -210,6 +210,7 @@ export async function withFailover<T>(
  * @param method - HTTP method
  * @param body - Request body
  * @param headers - Request headers
+ * @param providerType - Provider type (official, bedrock, custom, codex, openai, gemini)
  * @returns Response
  */
 export async function makeProxyRequest(
@@ -217,18 +218,30 @@ export async function makeProxyRequest(
   path: string,
   method: string,
   body: string,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  providerType: 'official' | 'bedrock' | 'custom' | 'codex' | 'openai' | 'gemini' = 'official'
 ): Promise<Response> {
   return await withFailover(providers, async (provider) => {
     const url = `${provider.endpoint}${path}`;
 
+    // Build provider-specific headers
+    const requestHeaders: Record<string, string> = { ...headers };
+
+    if (providerType === 'codex' || providerType === 'openai') {
+      // OpenAI uses standard Authorization Bearer header
+      requestHeaders['Authorization'] = `Bearer ${provider.apiKey}`;
+    } else if (providerType === 'gemini') {
+      // Gemini uses x-goog-api-key header
+      requestHeaders['x-goog-api-key'] = provider.apiKey;
+    } else {
+      // Claude (official, bedrock, custom) uses x-api-key and anthropic-version
+      requestHeaders['anthropic-version'] = headers['anthropic-version'] || '2023-06-01';
+      requestHeaders['x-api-key'] = provider.apiKey;
+    }
+
     const response = await fetch(url, {
       method,
-      headers: {
-        ...headers,
-        'anthropic-version': headers['anthropic-version'] || '2023-06-01',
-        'x-api-key': provider.apiKey,
-      },
+      headers: requestHeaders,
       body: method !== 'GET' ? body : undefined,
     });
 
