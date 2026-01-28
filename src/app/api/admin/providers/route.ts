@@ -3,7 +3,8 @@ import { db } from '@/lib/db';
 import { providers } from '@/lib/db/schema';
 import { encryptApiKey } from '@/lib/utils/crypto';
 import { desc } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
 
 export interface CreateProviderRequest {
   name: string;
@@ -72,11 +73,12 @@ function getDefaultEndpoint(type: string): string {
 
 /**
  * POST /api/admin/providers - Create a new provider
+ * Requires: PROVIDER_CREATE permission
  */
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.PROVIDER_CREATE);
+    if (!authResult.authorized) return authResult.response;
 
     const body: CreateProviderRequest = await request.json();
 
@@ -175,11 +177,12 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/admin/providers - List all providers
+ * Requires: PROVIDER_READ permission
  */
 export async function GET() {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.PROVIDER_READ);
+    if (!authResult.authorized) return authResult.response;
 
     const allProviders = await db
       .select({

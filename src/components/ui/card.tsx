@@ -187,7 +187,7 @@ const UsageCard = ({
 interface AlertCardProps {
   title?: string;
   description?: string;
-  variant?: "info" | "warning" | "error" | "success";
+  variant?: "info" | "warning" | "error" | "success" | "destructive";
   className?: string;
   children?: React.ReactNode;
 }
@@ -203,6 +203,7 @@ const AlertCard = ({
     info: "border-accent bg-accent/5",
     warning: "border-yellow-500 bg-yellow-50 dark:bg-yellow-950/10",
     error: "border-destructive bg-destructive/5",
+    destructive: "border-destructive bg-destructive/5",
     success: "border-success bg-success/5",
   };
 

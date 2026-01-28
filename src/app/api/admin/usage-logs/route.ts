@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { usageLogs, apiKeys } from '@/lib/db/schema';
-import { and, desc, eq, gte, ilike, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, lte, sql } from 'drizzle-orm';
 import { checkAuth } from '@/lib/auth/middleware';
 
 interface UsageLogsResponse {
@@ -81,13 +81,9 @@ export async function GET(request: NextRequest) {
       }
     }
     if (query) {
+      const likeQuery = `%${query}%`;
       filters.push(
-        or(
-          ilike(apiKeys.keyPrefix, `%${query}%`),
-          ilike(usageLogs.model, `%${query}%`),
-          ilike(usageLogs.path, `%${query}%`),
-          ilike(usageLogs.errorMessage, `%${query}%`)
-        )
+        sql`(${apiKeys.keyPrefix} ILIKE ${likeQuery} OR ${usageLogs.model} ILIKE ${likeQuery} OR ${usageLogs.path} ILIKE ${likeQuery} OR coalesce(${usageLogs.errorMessage}, '') ILIKE ${likeQuery})`
       );
     }
 

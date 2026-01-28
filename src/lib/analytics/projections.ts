@@ -276,3 +276,128 @@ export async function calculateLatencyStats(
     maxLatencyMs: Math.round(Number(stats[0]?.max || 0)),
   };
 }
+
+/**
+ * Calculate burn rate and budget exhaustion timeline
+ */
+export async function calculateBurnRate(
+  apiKeyId: string,
+  monthlyBudget?: number
+): Promise<{
+  daily: number;
+  weekly: number;
+  monthly: number;
+  percentageChange: number;
+  daysUntilBudgetExhausted: number | null;
+}> {
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const sevenDaysAgo = new Date(now);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const dailyData = await db
+    .select({
+      date: sql<string>`DATE(${usageLogs.timestamp})`.as('date'),
+      cost: sql<number>`SUM(${usageLogs.costUsd})`.as('cost'),
+    })
+    .from(usageLogs)
+    .where(
+      and(
+        eq(usageLogs.apiKeyId, apiKeyId),
+        gte(usageLogs.timestamp, thirtyDaysAgo)
+      )
+    )
+    .groupBy(sql`DATE(${usageLogs.timestamp})`)
+    .orderBy(sql`DATE(${usageLogs.timestamp})`);
+
+  if (dailyData.length === 0) {
+    return {
+      daily: 0,
+      weekly: 0,
+      monthly: 0,
+      percentageChange: 0,
+      daysUntilBudgetExhausted: null,
+    };
+  }
+
+  const recentData = dailyData.filter(d => new Date(d.date) >= sevenDaysAgo);
+  const recentCost = recentData.reduce((sum, d) => sum + Number(d.cost), 0) / 100;
+  const recentDailyBurn = recentCost / Math.max(recentData.length, 1);
+
+  const fourteenDaysAgo = new Date(now);
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+  const olderData = dailyData.filter(d => {
+    const date = new Date(d.date);
+    return date >= fourteenDaysAgo && date < sevenDaysAgo;
+  });
+  const olderCost = olderData.reduce((sum, d) => sum + Number(d.cost), 0) / 100;
+  const olderDailyBurn = olderCost / Math.max(olderData.length, 1);
+
+  const percentageChange = olderDailyBurn > 0
+    ? ((recentDailyBurn - olderDailyBurn) / olderDailyBurn) * 100
+    : 0;
+
+  let daysUntilBudgetExhausted: number | null = null;
+  if (monthlyBudget && monthlyBudget > 0 && recentDailyBurn > 0) {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthData = dailyData.filter(d => new Date(d.date) >= monthStart);
+    const monthlySpent = monthData.reduce((sum, d) => sum + Number(d.cost), 0) / 100;
+    const remaining = monthlyBudget - monthlySpent;
+
+    if (remaining > 0) {
+      daysUntilBudgetExhausted = Math.floor(remaining / recentDailyBurn);
+    } else {
+      daysUntilBudgetExhausted = 0;
+    }
+  }
+
+  return {
+    daily: recentDailyBurn,
+    weekly: recentDailyBurn * 7,
+    monthly: recentDailyBurn * 30,
+    percentageChange: Math.round(percentageChange * 10) / 10,
+    daysUntilBudgetExhausted,
+  };
+}
+
+/**
+ * Get detailed cost breakdown by model
+ */
+export async function getCostBreakdownByModel(
+  startDate: Date,
+  endDate: Date,
+  apiKeyId?: string
+): Promise<{
+  byModel: Record<string, number>;
+  total: number;
+}> {
+  const whereConditions = [
+    gte(usageLogs.timestamp, startDate),
+    lt(usageLogs.timestamp, endDate),
+  ];
+
+  if (apiKeyId) {
+    whereConditions.push(eq(usageLogs.apiKeyId, apiKeyId));
+  }
+
+  const modelBreakdown = await db
+    .select({
+      model: usageLogs.model,
+      cost: sql<number>`SUM(${usageLogs.costUsd})`.as('cost'),
+    })
+    .from(usageLogs)
+    .where(and(...whereConditions))
+    .groupBy(usageLogs.model);
+
+  const byModel: Record<string, number> = {};
+  let total = 0;
+
+  for (const row of modelBreakdown) {
+    const cost = Number(row.cost) / 100;
+    byModel[row.model] = cost;
+    total += cost;
+  }
+
+  return { byModel, total };
+}

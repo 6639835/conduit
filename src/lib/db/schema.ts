@@ -31,6 +31,10 @@ export const providers = pgTable('providers', {
   endpoint: text('endpoint').notNull(),
   apiKey: text('api_key').notNull(), // Encrypted provider credential (API key or OAuth token)
 
+  // Multi-region support
+  region: varchar('region', { length: 50 }), // e.g., 'us-east-1', 'eu-west-1', 'ap-southeast-1'
+  model: varchar('model', { length: 100 }), // e.g., 'claude-sonnet-4', 'gpt-4o', 'gemini-1.5-pro'
+
   // Status
   isActive: boolean('is_active').notNull().default(true),
   isDefault: boolean('is_default').notNull().default(false),
@@ -64,6 +68,7 @@ export const providers = pgTable('providers', {
   isActiveIdx: index('providers_is_active_idx').on(table.isActive),
   isDefaultIdx: index('providers_is_default_idx').on(table.isDefault),
   priorityIdx: index('providers_priority_idx').on(table.priority),
+  regionIdx: index('providers_region_idx').on(table.region),
   // Note: Only one provider should be default at a time, but this is enforced at application level
 }));
 
@@ -206,6 +211,32 @@ export const usageLogs = pgTable('usage_logs', {
   compositeIdx: index('usage_logs_composite_idx').on(table.apiKeyId, table.timestamp),
 }));
 
+// Request logs table (detailed request-level analytics)
+export const requestLogs = pgTable('request_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  apiKeyId: uuid('api_key_id').references(() => apiKeys.id).notNull(),
+  providerId: uuid('provider_id').references(() => providers.id),
+
+  method: varchar('method', { length: 10 }).notNull(),
+  endpoint: text('endpoint').notNull(),
+  model: varchar('model', { length: 100 }).notNull(),
+
+  promptTokens: integer('prompt_tokens').notNull().default(0),
+  completionTokens: integer('completion_tokens').notNull().default(0),
+  cost: integer('cost').notNull().default(0),
+
+  latencyMs: integer('latency_ms'),
+  statusCode: integer('status_code').notNull(),
+  errorMessage: text('error_message'),
+
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  apiKeyIdIdx: index('request_logs_api_key_id_idx').on(table.apiKeyId),
+  providerIdIdx: index('request_logs_provider_id_idx').on(table.providerId),
+  createdAtIdx: index('request_logs_created_at_idx').on(table.createdAt),
+}));
+
 // Aggregated usage (materialized view, updated hourly/daily)
 export const usageAggregates = pgTable('usage_aggregates', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -291,6 +322,18 @@ export const organizations = pgTable('organizations', {
   // Settings
   settings: jsonb('settings'), // Organization-specific settings
 
+  // SSO/SAML Configuration
+  ssoEnabled: boolean('sso_enabled').notNull().default(false),
+  ssoProvider: varchar('sso_provider', { length: 50 }), // 'saml', 'oauth-google', 'oauth-github', 'oauth-azure'
+  ssoConfig: jsonb('sso_config'), // Provider-specific SSO configuration
+  // For SAML: { entityId, ssoUrl, certificate, signRequests, encryptAssertions }
+  // For OAuth: { clientId, clientSecret (encrypted), authorizeUrl, tokenUrl, scopes }
+
+  // Data Retention & Compliance
+  retentionPolicyDays: integer('retention_policy_days'), // null = no retention, number = days to retain
+  gdprCompliant: boolean('gdpr_compliant').notNull().default(false),
+  ccpaCompliant: boolean('ccpa_compliant').notNull().default(false),
+
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -375,6 +418,194 @@ export const responseCache = pgTable('response_cache', {
   expiresAtIdx: index('response_cache_expires_at_idx').on(table.expiresAt),
 }));
 
+// API Key Templates table (for standardized key creation)
+export const keyTemplates = pgTable('key_templates', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+
+  // Template settings (applied to new keys)
+  providerId: uuid('provider_id').references(() => providers.id, { onDelete: 'set null' }),
+  providerSelectionStrategy: varchar('provider_selection_strategy', { length: 30 }).default('single'),
+  providerIds: jsonb('provider_ids'), // Array of {providerId, priority} for multi-provider templates
+
+  // Default quotas
+  requestsPerMinute: integer('requests_per_minute').default(60),
+  requestsPerDay: integer('requests_per_day').default(1000),
+  tokensPerDay: bigint('tokens_per_day', { mode: 'number' }).default(1000000),
+  monthlySpendLimitUsd: integer('monthly_spend_limit_usd'),
+
+  // Default security settings
+  expiresInDays: integer('expires_in_days'), // Days until expiration (null = no expiration)
+  ipWhitelist: jsonb('ip_whitelist'),
+  ipBlacklist: jsonb('ip_blacklist'),
+  scopes: jsonb('scopes'), // { models: [...], endpoints: [...] }
+
+  // Default alert thresholds
+  alertThresholds: jsonb('alert_thresholds').default({
+    requestsPerDay: [80, 90],
+    tokensPerDay: [80, 90],
+    monthlySpend: [80, 90],
+  }),
+
+  // Notification settings
+  emailNotificationsEnabled: boolean('email_notifications_enabled').default(false),
+  webhookUrl: text('webhook_url'),
+  slackWebhook: text('slack_webhook'),
+  discordWebhook: text('discord_webhook'),
+
+  // Organization association
+  organizationId: uuid('organization_id').references(() => organizations.id, { onDelete: 'cascade' }),
+
+  // Metadata
+  isActive: boolean('is_active').notNull().default(true),
+  usageCount: integer('usage_count').notNull().default(0), // Track how many keys created from this template
+  createdBy: uuid('created_by').references(() => admins.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  nameIdx: index('key_templates_name_idx').on(table.name),
+  organizationIdIdx: index('key_templates_organization_id_idx').on(table.organizationId),
+  isActiveIdx: index('key_templates_is_active_idx').on(table.isActive),
+  createdByIdx: index('key_templates_created_by_idx').on(table.createdBy),
+}));
+
+// Webhook Configurations table (for event-driven notifications)
+export const webhookConfigurations = pgTable('webhook_configurations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+
+  // Webhook endpoint
+  url: text('url').notNull(),
+  secret: text('secret'), // Optional HMAC secret for signature verification
+
+  // Event types to subscribe to
+  events: jsonb('events').notNull(), // Array of event types: ['quota.warning', 'key.expired', 'error.rate.spike', etc.]
+
+  // Filtering
+  apiKeyId: uuid('api_key_id').references(() => apiKeys.id, { onDelete: 'cascade' }), // Null = all keys
+  organizationId: uuid('organization_id').references(() => organizations.id, { onDelete: 'cascade' }), // Null = all orgs
+
+  // Delivery settings
+  retryPolicy: jsonb('retry_policy').default({
+    maxRetries: 3,
+    backoffMultiplier: 2,
+    initialDelay: 1000,
+  }),
+  timeout: integer('timeout').default(5000), // Milliseconds
+
+  // Headers (for authentication, etc.)
+  headers: jsonb('headers'), // Custom HTTP headers
+
+  // Status
+  isActive: boolean('is_active').notNull().default(true),
+  lastTriggeredAt: timestamp('last_triggered_at'),
+  lastSuccessAt: timestamp('last_success_at'),
+  lastFailureAt: timestamp('last_failure_at'),
+  failureCount: integer('failure_count').notNull().default(0),
+
+  // Metadata
+  createdBy: uuid('created_by').references(() => admins.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  nameIdx: index('webhook_configurations_name_idx').on(table.name),
+  apiKeyIdIdx: index('webhook_configurations_api_key_id_idx').on(table.apiKeyId),
+  organizationIdIdx: index('webhook_configurations_organization_id_idx').on(table.organizationId),
+  isActiveIdx: index('webhook_configurations_is_active_idx').on(table.isActive),
+  eventsIdx: index('webhook_configurations_events_idx').using('gin', table.events),
+}));
+
+// Webhook Delivery Logs (track webhook deliveries)
+export const webhookDeliveryLogs = pgTable('webhook_delivery_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  webhookConfigurationId: uuid('webhook_configuration_id').references(() => webhookConfigurations.id, { onDelete: 'cascade' }).notNull(),
+
+  // Event details
+  event: varchar('event', { length: 100 }).notNull(), // e.g., 'quota.warning', 'key.expired'
+  payload: jsonb('payload').notNull(), // The event data sent
+
+  // Request details
+  requestUrl: text('request_url').notNull(),
+  requestMethod: varchar('request_method', { length: 10 }).default('POST'),
+  requestHeaders: jsonb('request_headers'),
+  requestBody: jsonb('request_body'),
+
+  // Response details
+  responseStatus: integer('response_status'),
+  responseBody: text('response_body'),
+  responseTime: integer('response_time'), // Milliseconds
+
+  // Status
+  status: varchar('status', { length: 20 }).notNull(), // 'pending', 'success', 'failed', 'retrying'
+  attemptNumber: integer('attempt_number').notNull().default(1),
+  errorMessage: text('error_message'),
+
+  // Timestamps
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  deliveredAt: timestamp('delivered_at'),
+}, (table) => ({
+  webhookIdIdx: index('webhook_delivery_logs_webhook_id_idx').on(table.webhookConfigurationId),
+  eventIdx: index('webhook_delivery_logs_event_idx').on(table.event),
+  statusIdx: index('webhook_delivery_logs_status_idx').on(table.status),
+  createdAtIdx: index('webhook_delivery_logs_created_at_idx').on(table.createdAt),
+}));
+
+// Custom Dashboards table (for drag-and-drop dashboard builder)
+export const customDashboards = pgTable('custom_dashboards', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+
+  // Dashboard configuration
+  layout: jsonb('layout').notNull(), // Grid layout configuration
+  widgets: jsonb('widgets').notNull(), // Array of widget configurations
+  /**
+   * Widget structure:
+   * {
+   *   id: string,
+   *   type: 'metric' | 'line-chart' | 'bar-chart' | 'donut-chart' | 'table',
+   *   title: string,
+   *   config: {
+   *     // Widget-specific configuration
+   *     dataSource: string, // API endpoint or data source
+   *     refreshInterval?: number, // Auto-refresh in seconds
+   *     filters?: object, // Data filters
+   *     ...
+   *   },
+   *   position: { x: number, y: number, w: number, h: number }
+   * }
+   */
+
+  // Access control
+  visibility: varchar('visibility', { length: 20 }).notNull().default('private'), // 'private', 'organization', 'public'
+  organizationId: uuid('organization_id').references(() => organizations.id, { onDelete: 'cascade' }),
+
+  // Sharing
+  shareToken: varchar('share_token', { length: 64 }).unique(), // For public sharing
+  shareExpiresAt: timestamp('share_expires_at'),
+
+  // Settings
+  isDefault: boolean('is_default').notNull().default(false), // Default dashboard for user
+  refreshInterval: integer('refresh_interval').default(300), // Auto-refresh in seconds (default 5 min)
+  theme: varchar('theme', { length: 20 }).default('light'), // 'light', 'dark', 'auto'
+
+  // Metadata
+  createdBy: uuid('created_by').references(() => admins.id).notNull(),
+  lastViewedAt: timestamp('last_viewed_at'),
+  viewCount: integer('view_count').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  nameIdx: index('custom_dashboards_name_idx').on(table.name),
+  createdByIdx: index('custom_dashboards_created_by_idx').on(table.createdBy),
+  organizationIdIdx: index('custom_dashboards_organization_id_idx').on(table.organizationId),
+  visibilityIdx: index('custom_dashboards_visibility_idx').on(table.visibility),
+  shareTokenIdx: index('custom_dashboards_share_token_idx').on(table.shareToken),
+  isDefaultIdx: index('custom_dashboards_is_default_idx').on(table.isDefault),
+}));
+
 // Type exports for TypeScript
 export type Admin = typeof admins.$inferSelect;
 export type NewAdmin = typeof admins.$inferInsert;
@@ -384,6 +615,8 @@ export type NewApiKey = typeof apiKeys.$inferInsert;
 
 export type UsageLog = typeof usageLogs.$inferSelect;
 export type NewUsageLog = typeof usageLogs.$inferInsert;
+export type RequestLog = typeof requestLogs.$inferSelect;
+export type NewRequestLog = typeof requestLogs.$inferInsert;
 
 export type UsageAggregate = typeof usageAggregates.$inferSelect;
 export type NewUsageAggregate = typeof usageAggregates.$inferInsert;
@@ -411,3 +644,15 @@ export type NewResponseCache = typeof responseCache.$inferInsert;
 
 export type ApiKeyProvider = typeof apiKeyProviders.$inferSelect;
 export type NewApiKeyProvider = typeof apiKeyProviders.$inferInsert;
+
+export type KeyTemplate = typeof keyTemplates.$inferSelect;
+export type NewKeyTemplate = typeof keyTemplates.$inferInsert;
+
+export type WebhookConfiguration = typeof webhookConfigurations.$inferSelect;
+export type NewWebhookConfiguration = typeof webhookConfigurations.$inferInsert;
+
+export type WebhookDeliveryLog = typeof webhookDeliveryLogs.$inferSelect;
+export type NewWebhookDeliveryLog = typeof webhookDeliveryLogs.$inferInsert;
+
+export type CustomDashboard = typeof customDashboards.$inferSelect;
+export type NewCustomDashboard = typeof customDashboards.$inferInsert;

@@ -11,7 +11,7 @@ type SortDirection = "asc" | "desc" | null;
 
 export interface Column<T> {
   key: string;
-  header: string;
+  header: React.ReactNode;
   sortable?: boolean;
   filterable?: boolean;
   filterOptions?: { label: string; value: string }[];

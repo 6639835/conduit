@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { admins } from '@/lib/db/schema';
 import { apiKeys } from '@/lib/db/schema';
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, sql, and } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission, Role } from '@/lib/auth/rbac';
 
 interface CreateUserRequest {
   email: string;
@@ -43,9 +44,9 @@ interface ListUsersResponse {
  * POST /api/admin/users - Create a new admin user
  */
 export async function POST(request: NextRequest) {
-  // Check authentication
-  const authResult = await checkAuth();
-  if (authResult.error) return authResult.error;
+  // Check permission
+  const authResult = await requirePermission(Permission.ADMIN_CREATE);
+  if (!authResult.authorized) return authResult.response;
 
   try {
     const body: CreateUserRequest = await request.json();
@@ -128,25 +129,56 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET /api/admin/users - List all admin users
+ * GET /api/admin/users - List all admin users with roles
+ * Query params:
+ * - organizationId: Filter by organization (optional)
+ * Permission: ADMIN_READ
  */
-export async function GET() {
-  // Check authentication
-  const authResult = await checkAuth();
-  if (authResult.error) return authResult.error;
+export async function GET(request: NextRequest) {
+  // Check permission
+  const authResult = await requirePermission(Permission.ADMIN_READ);
+  if (!authResult.authorized) return authResult.response;
+
+  const { searchParams } = new URL(request.url);
+  const organizationId = searchParams.get('organizationId');
 
   try {
+    // Build query conditions
+    const conditions = [];
+
+    // Org admins can only see users in their organization
+    if (authResult.adminContext.role === Role.ORG_ADMIN) {
+      if (authResult.adminContext.organizationId) {
+        conditions.push(eq(admins.organizationId, authResult.adminContext.organizationId));
+      } else {
+        // Org admin without organization can't see any users
+        return NextResponse.json({
+          success: true,
+          users: [],
+          total: 0,
+          canManageUsers: false,
+        });
+      }
+    } else if (organizationId) {
+      // Super admins can filter by organization
+      conditions.push(eq(admins.organizationId, organizationId));
+    }
+
     // Get all users with their API key counts
     const users = await db
       .select({
         id: admins.id,
         email: admins.email,
         name: admins.name,
+        role: admins.role,
+        organizationId: admins.organizationId,
+        permissions: admins.permissions,
         isActive: admins.isActive,
         createdAt: admins.createdAt,
         updatedAt: admins.updatedAt,
       })
       .from(admins)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(admins.createdAt));
 
     // Get API key counts for each user
@@ -164,10 +196,12 @@ export async function GET() {
           id: user.id,
           email: user.email,
           name: user.name,
-          role: 'admin' as const, // All users in admins table are admins
+          role: user.role,
+          organizationId: user.organizationId,
+          permissions: user.permissions,
           isActive: user.isActive,
           createdAt: user.createdAt.toISOString(),
-          lastActiveAt: user.updatedAt.toISOString(), // Using updatedAt as proxy
+          lastActiveAt: user.updatedAt.toISOString(),
           apiKeyCount: keyCount[0]?.count || 0,
         };
       })
@@ -177,6 +211,9 @@ export async function GET() {
       {
         success: true,
         users: usersWithCounts,
+        total: usersWithCounts.length,
+        canManageUsers: authResult.adminContext.role !== Role.VIEWER,
+        currentAdminRole: authResult.adminContext.role,
       } as ListUsersResponse,
       { status: 200 }
     );

@@ -1,6 +1,10 @@
 export { Button, type ButtonProps } from "./button";
+export { Badge, type BadgeProps } from "./badge";
 export { Input, type InputProps } from "./input";
+export { Textarea, type TextareaProps } from "./textarea";
 export { Select, type SelectProps } from "./select";
+export { Switch, type SwitchProps } from "./switch";
+export { Tabs, TabsList, TabsTrigger, TabsContent } from "./tabs";
 export {
   Card,
   CardHeader,
@@ -30,3 +34,9 @@ export {
   CHART_COLORS,
 } from "./charts";
 export { StreamingPanel, StreamingSkeleton } from "./streaming-panel";
+export {
+  QuotaProgress,
+  QuotaGrid,
+  QuotaSummary,
+  type QuotaData,
+} from "./quota-progress";

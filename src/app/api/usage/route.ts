@@ -174,9 +174,7 @@ export async function GET(request: NextRequest) {
           modelBreakdown,
           dailyUsage: dailyUsage.map((row) => ({
             ...row,
-            date: typeof row.date === 'string'
-              ? row.date
-              : row.date.toISOString().split('T')[0],
+            date: row.date,
           })),
           recentRequests: recentRequests.map((row) => ({
             ...row,

@@ -352,7 +352,16 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
 
     if (body && primaryProvider.cacheEnabled && isCacheable(body) && upstreamResponse.ok) {
       const cacheKey = await generateCacheKey(requestedModel || 'gemini', body as Record<string, unknown>);
-      setCachedResponse(cacheKey, responseBody).catch((err) => console.error('Cache storage error:', err));
+      const cacheModel = usageData?.model || requestedModel || 'gemini';
+      const ttl = primaryProvider.cacheTtlSeconds || 300;
+      setCachedResponse(
+        cacheKey,
+        responseBody,
+        cacheModel,
+        usageData?.tokensInput ?? 0,
+        usageData?.tokensOutput ?? 0,
+        ttl
+      ).catch((err) => console.error('Cache storage error:', err));
     }
 
     const headers = cleanResponseHeaders(upstreamResponse.headers);

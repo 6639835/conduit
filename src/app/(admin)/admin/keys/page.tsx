@@ -16,6 +16,7 @@ import {
   type TableFilter,
   AlertCard,
   SkeletonTable,
+  QuotaSummary,
 } from '@/components/ui';
 import {
   Plus,
@@ -26,6 +27,7 @@ import {
   Shield,
   Clock,
   Edit,
+  BarChart3,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 
@@ -42,6 +44,33 @@ interface ApiKeyRow {
   monthlySpendLimitUsd: number | null;
 }
 
+interface QuotaUsage {
+  requestsPerMinute: {
+    used: number;
+    limit: number;
+    remaining: number;
+    percentage: number;
+  };
+  requestsPerDay: {
+    used: number;
+    limit: number;
+    remaining: number;
+    percentage: number;
+  };
+  tokensPerDay: {
+    used: number;
+    limit: number;
+    remaining: number;
+    percentage: number;
+  };
+  monthlySpend?: {
+    used: number;
+    limit: number;
+    remaining: number;
+    percentage: number;
+  };
+}
+
 interface Provider {
   id: string;
   name: string;
@@ -55,9 +84,21 @@ interface Provider {
   };
 }
 
+interface KeyTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  providerId: string | null;
+  requestsPerMinute: number;
+  requestsPerDay: number;
+  tokensPerDay: number;
+  monthlySpendLimitUsd: number | null;
+}
+
 export default function AdminKeysPage() {
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [templates, setTemplates] = useState<KeyTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -66,6 +107,13 @@ export default function AdminKeysPage() {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [viewingQuotaKey, setViewingQuotaKey] = useState<ApiKeyRow | null>(null);
+  const [quotaUsage, setQuotaUsage] = useState<QuotaUsage | null>(null);
+  const [loadingQuota, setLoadingQuota] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [showBulkCreate, setShowBulkCreate] = useState(false);
+  const [bulkCount, setBulkCount] = useState(5);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -88,6 +136,7 @@ export default function AdminKeysPage() {
   useEffect(() => {
     fetchKeys();
     fetchProviders();
+    fetchTemplates();
   }, []);
 
   const fetchKeys = async () => {
@@ -132,6 +181,20 @@ export default function AdminKeysPage() {
       });
     } finally {
       setLoadingProviders(false);
+    }
+  };
+
+  const fetchTemplates = async () => {
+    try {
+      const response = await fetch('/api/admin/key-templates');
+      const data = await response.json();
+      if (data.success && data.templates) {
+        setTemplates(data.templates);
+      }
+    } catch {
+      toast.error('Failed to fetch templates', {
+        description: 'An unexpected error occurred',
+      });
     }
   };
 
@@ -307,7 +370,181 @@ export default function AdminKeysPage() {
     });
   };
 
+  const fetchQuotaUsage = async (keyId: string) => {
+    setLoadingQuota(true);
+    try {
+      const response = await fetch(`/api/admin/keys/${keyId}/quota`);
+      const data = await response.json();
+      if (data.success && data.quota) {
+        setQuotaUsage(data.quota);
+      } else {
+        toast.error('Failed to fetch quota usage', {
+          description: data.error || 'An unexpected error occurred',
+        });
+      }
+    } catch {
+      toast.error('Failed to fetch quota usage', {
+        description: 'An unexpected error occurred',
+      });
+    } finally {
+      setLoadingQuota(false);
+    }
+  };
+
+  const handleViewQuota = async (key: ApiKeyRow) => {
+    setViewingQuotaKey(key);
+    setQuotaUsage(null);
+    await fetchQuotaUsage(key.id);
+  };
+
+  const handleCloseQuotaView = () => {
+    setViewingQuotaKey(null);
+    setQuotaUsage(null);
+  };
+
+  const handleApplyTemplate = (templateId: string) => {
+    const template = templates.find(t => t.id === templateId);
+    if (template && template.providerId) {
+      setFormData({
+        ...formData,
+        provider: template.providerId,
+        requestsPerMinute: template.requestsPerMinute,
+        requestsPerDay: template.requestsPerDay,
+        tokensPerDay: template.tokensPerDay,
+        monthlySpendLimitUsd: template.monthlySpendLimitUsd || 0,
+      });
+      setSelectedTemplate(templateId);
+      toast.success('Template applied', {
+        description: `Using settings from "${template.name}"`,
+      });
+    }
+  };
+
+  const handleBulkRevoke = async () => {
+    if (selectedKeys.size === 0) {
+      toast.error('No keys selected', {
+        description: 'Please select at least one key to revoke',
+      });
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to revoke ${selectedKeys.size} API key(s)?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/admin/keys/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation: 'revoke',
+          apiKeyIds: Array.from(selectedKeys),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setSelectedKeys(new Set());
+        fetchKeys();
+        toast.success('Keys revoked successfully', {
+          description: `${data.results?.successful || 0} key(s) revoked`,
+        });
+      } else {
+        toast.error('Failed to revoke keys', {
+          description: data.error || 'An unexpected error occurred',
+        });
+      }
+    } catch {
+      toast.error('Failed to revoke keys', {
+        description: 'An unexpected error occurred',
+      });
+    }
+  };
+
+  const handleBulkCreateFromTemplate = async () => {
+    if (!selectedTemplate) {
+      toast.error('No template selected', {
+        description: 'Please select a template first',
+      });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const response = await fetch('/api/admin/keys/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation: 'create',
+          count: bulkCount,
+          templateId: selectedTemplate,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setShowBulkCreate(false);
+        setSelectedTemplate('');
+        setBulkCount(5);
+        fetchKeys();
+        toast.success('Keys created successfully', {
+          description: `${data.results?.successful || 0} key(s) created from template`,
+        });
+      } else {
+        toast.error('Failed to create keys', {
+          description: data.error || 'An unexpected error occurred',
+        });
+      }
+    } catch {
+      toast.error('Failed to create keys', {
+        description: 'An unexpected error occurred',
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleKeySelection = (keyId: string) => {
+    const newSelection = new Set(selectedKeys);
+    if (newSelection.has(keyId)) {
+      newSelection.delete(keyId);
+    } else {
+      newSelection.add(keyId);
+    }
+    setSelectedKeys(newSelection);
+  };
+
+  const toggleAllKeys = () => {
+    if (selectedKeys.size === keys.filter(k => k.isActive).length) {
+      setSelectedKeys(new Set());
+    } else {
+      setSelectedKeys(new Set(keys.filter(k => k.isActive).map(k => k.id)));
+    }
+  };
+
   const columns: Column<ApiKeyRow>[] = [
+    {
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          checked={selectedKeys.size === keys.filter(k => k.isActive).length && keys.filter(k => k.isActive).length > 0}
+          onChange={toggleAllKeys}
+          className="h-4 w-4 rounded border-border text-accent focus:ring-2 focus:ring-accent"
+        />
+      ),
+      render: (row) =>
+        row.isActive ? (
+          <input
+            type="checkbox"
+            checked={selectedKeys.has(row.id)}
+            onChange={() => toggleKeySelection(row.id)}
+            className="h-4 w-4 rounded border-border text-accent focus:ring-2 focus:ring-accent"
+          />
+        ) : null,
+    },
     {
       key: 'keyPrefix',
       header: 'Key',
@@ -391,6 +628,14 @@ export default function AdminKeysPage() {
             <Button
               variant="ghost"
               size="sm"
+              onClick={() => handleViewQuota(row)}
+              title="View Quota Usage"
+            >
+              <BarChart3 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => handleEditKey(row)}
             >
               <Edit className="h-4 w-4" />
@@ -419,11 +664,102 @@ export default function AdminKeysPage() {
               Create, view, and manage API keys for your Claude gateway
             </p>
           </div>
-          <Button onClick={() => setShowCreateForm(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Create New Key
-          </Button>
+          <div className="flex gap-2">
+            {templates.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => setShowBulkCreate(true)}
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                Bulk Create
+              </Button>
+            )}
+            {selectedKeys.size > 0 && (
+              <Button
+                variant="outline"
+                onClick={handleBulkRevoke}
+                className="text-destructive border-destructive hover:bg-destructive hover:text-white"
+              >
+                Revoke {selectedKeys.size} Key{selectedKeys.size > 1 ? 's' : ''}
+              </Button>
+            )}
+            <Button onClick={() => setShowCreateForm(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create New Key
+            </Button>
+          </div>
         </div>
+
+        {/* Bulk Create Form */}
+        {showBulkCreate && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <CardTitle className="text-lg">Bulk Create API Keys</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Create multiple keys at once from a template
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowBulkCreate(false);
+                    setSelectedTemplate('');
+                    setBulkCount(5);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <Select
+                label="Select Template"
+                value={selectedTemplate}
+                onChange={(e) => setSelectedTemplate(e.target.value)}
+                required
+              >
+                <option value="">Select a template</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name} - {template.requestsPerDay}/day, {Number(template.tokensPerDay).toLocaleString()} tokens
+                  </option>
+                ))}
+              </Select>
+
+              <Input
+                label="Number of Keys"
+                type="number"
+                min="1"
+                max="100"
+                value={bulkCount}
+                onChange={(e) => setBulkCount(parseInt(e.target.value) || 1)}
+                helpText="Maximum 100 keys per batch"
+              />
+
+              {selectedTemplate && (
+                <AlertCard variant="info">
+                  <p className="text-sm">
+                    Keys will be created with names: &ldquo;{templates.find(t => t.id === selectedTemplate)?.name} 1&rdquo;,
+                    &ldquo;{templates.find(t => t.id === selectedTemplate)?.name} 2&rdquo;, etc.
+                  </p>
+                </AlertCard>
+              )}
+
+              <Button
+                onClick={handleBulkCreateFromTemplate}
+                className="w-full"
+                isLoading={submitting}
+                disabled={!selectedTemplate}
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                Create {bulkCount} Key{bulkCount > 1 ? 's' : ''}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Created Key Display */}
         {createdKey && (
@@ -491,6 +827,27 @@ export default function AdminKeysPage() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleCreateKey} className="space-y-6">
+                {/* Template Picker */}
+                {templates.length > 0 && (
+                  <AlertCard variant="info">
+                    <div className="space-y-3">
+                      <p className="font-medium">Quick Start: Use a Template</p>
+                      <Select
+                        label="Apply Template (optional)"
+                        value={selectedTemplate}
+                        onChange={(e) => handleApplyTemplate(e.target.value)}
+                      >
+                        <option value="">Start from scratch</option>
+                        {templates.map((template) => (
+                          <option key={template.id} value={template.id}>
+                            {template.name} - {template.requestsPerDay}/day, {Number(template.tokensPerDay).toLocaleString()} tokens
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  </AlertCard>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <Input
                     label="Name (optional)"
@@ -804,6 +1161,78 @@ export default function AdminKeysPage() {
                   Create API Key
                 </Button>
               </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Quota View */}
+        {viewingQuotaKey && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5" />
+                    Quota Usage - {viewingQuotaKey.name || viewingQuotaKey.keyPrefix}
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Real-time quota monitoring for this API key
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchQuotaUsage(viewingQuotaKey.id)}
+                    disabled={loadingQuota}
+                  >
+                    Refresh
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCloseQuotaView}
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingQuota && !quotaUsage ? (
+                <div className="space-y-4">
+                  <div className="h-24 bg-muted animate-pulse rounded-lg" />
+                  <div className="h-24 bg-muted animate-pulse rounded-lg" />
+                  <div className="h-24 bg-muted animate-pulse rounded-lg" />
+                </div>
+              ) : quotaUsage ? (
+                <QuotaSummary
+                  requestsPerMinute={{
+                    used: quotaUsage.requestsPerMinute.used,
+                    limit: quotaUsage.requestsPerMinute.limit,
+                  }}
+                  requestsPerDay={{
+                    used: quotaUsage.requestsPerDay.used,
+                    limit: quotaUsage.requestsPerDay.limit,
+                  }}
+                  tokensPerDay={{
+                    used: quotaUsage.tokensPerDay.used,
+                    limit: quotaUsage.tokensPerDay.limit,
+                  }}
+                  monthlySpend={
+                    quotaUsage.monthlySpend
+                      ? {
+                          used: quotaUsage.monthlySpend.used,
+                          limit: quotaUsage.monthlySpend.limit,
+                        }
+                      : undefined
+                  }
+                />
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  Failed to load quota usage
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

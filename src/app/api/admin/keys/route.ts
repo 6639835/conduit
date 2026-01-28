@@ -5,9 +5,11 @@ import { generateApiKey } from '@/lib/auth/api-key';
 import { desc, eq, sql } from 'drizzle-orm';
 import type { CreateApiKeyResponse, ListApiKeysResponse } from '@/types';
 import { SystemNotifications } from '@/lib/notifications';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
 import { z } from 'zod';
 import { setProviderPool } from '@/lib/proxy/provider-pool';
+import { kv } from '@vercel/kv';
 
 // Validation schema for creating API keys
 const createApiKeySchema = z.object({
@@ -34,14 +36,14 @@ const createApiKeySchema = z.object({
 
 /**
  * POST /api/admin/keys - Create a new API key
- * Requires authentication
+ * Requires: API_KEY_CREATE permission
  */
 export async function POST(request: NextRequest) {
   try {
-    // Check authentication
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    // Check permission
+    const authResult = await requirePermission(Permission.API_KEY_CREATE);
+    if (!authResult.authorized) return authResult.response;
+    const adminContext = authResult.adminContext;
 
     // Parse and validate request body
     const rawBody = await request.json();
@@ -144,7 +146,7 @@ export async function POST(request: NextRequest) {
         monthlySpendLimitUsd: body.monthlySpendLimitUsd || null,
         metadata: body.metadata || null,
         isActive: true,
-        createdBy: session.user.id,
+        createdBy: adminContext.id,
         expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
         ipWhitelist: body.ipWhitelist || null,
         ipBlacklist: body.ipBlacklist || null,
@@ -168,7 +170,7 @@ export async function POST(request: NextRequest) {
 
     // Send notification to the admin who created the key
     await SystemNotifications.apiKeyCreated(
-      session.user.id,
+      adminContext.id,
       body.name || null,
       keyPrefix
     ).catch(err => console.error('Failed to send notification:', err));
@@ -202,20 +204,21 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/admin/keys - List all API keys with pagination
- * Requires authentication
- * Query params: page (default 1), limit (default 50, max 100)
+ * Requires: API_KEY_READ permission
+ * Query params: page (default 1), limit (default 50, max 100), includeQuota (default false)
  */
 export async function GET(request: NextRequest) {
   try {
-    // Check authentication
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    // Check permission
+    const authResult = await requirePermission(Permission.API_KEY_READ);
+    if (!authResult.authorized) return authResult.response;
 
     // Parse pagination parameters
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
     const offset = (page - 1) * limit;
+    const includeQuota = searchParams.get('includeQuota') === 'true';
 
     const keys = await db
       .select({
@@ -246,6 +249,38 @@ export async function GET(request: NextRequest) {
 
     const totalPages = Math.ceil(count / limit);
 
+    // If quota data is requested, fetch usage stats
+    const quotaData: Record<string, { tokensUsedToday: number; requestsToday: number }> = {};
+    if (includeQuota) {
+      const today = new Date().toISOString().slice(0, 10);
+
+      // Fetch current usage from KV for all keys (batch operation)
+      for (const key of keys) {
+        if (key.isActive) {
+          const dayKey = `rate_limit:${key.id}:day:${today}`;
+          const tokensCacheKey = `quota:${key.id}:day:${today}:tokens`;
+
+          try {
+            const [dayCount, tokensUsed] = await Promise.all([
+              kv.get<number>(dayKey),
+              kv.get<number>(tokensCacheKey),
+            ]);
+
+            quotaData[key.id] = {
+              requestsToday: dayCount || 0,
+              tokensUsedToday: tokensUsed || 0,
+            };
+          } catch {
+            // Ignore errors for individual keys
+            quotaData[key.id] = {
+              requestsToday: 0,
+              tokensUsedToday: 0,
+            };
+          }
+        }
+      }
+    }
+
     return NextResponse.json(
       {
         success: true,
@@ -269,6 +304,19 @@ export async function GET(request: NextRequest) {
           revokedAt: key.revokedAt?.toISOString() || null,
           createdAt: key.createdAt.toISOString(),
           updatedAt: key.updatedAt.toISOString(),
+          // Include quota usage if requested
+          ...(includeQuota && quotaData[key.id] && {
+            quotaUsage: {
+              requestsToday: quotaData[key.id].requestsToday,
+              tokensUsedToday: quotaData[key.id].tokensUsedToday,
+              requestsPercentage: key.requestsPerDay
+                ? (quotaData[key.id].requestsToday / key.requestsPerDay) * 100
+                : 0,
+              tokensPercentage: key.tokensPerDay
+                ? (quotaData[key.id].tokensUsedToday / Number(key.tokensPerDay)) * 100
+                : 0,
+            },
+          }),
         })),
       } as ListApiKeysResponse,
       { status: 200 }

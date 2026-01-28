@@ -25,6 +25,7 @@ interface AnalyticsResponse {
       costUsd: number;
     }>;
     topApiKeys: Array<{
+      id: string;
       keyPrefix: string;
       name: string | null;
       requests: number;
@@ -137,6 +138,7 @@ export async function GET(request: NextRequest) {
     for (const keyData of topKeysData) {
       const [key] = await db
         .select({
+          id: apiKeys.id,
           keyPrefix: apiKeys.keyPrefix,
           name: apiKeys.name,
         })
@@ -147,6 +149,7 @@ export async function GET(request: NextRequest) {
 
       if (key) {
         topApiKeys.push({
+          id: key.id,
           keyPrefix: key.keyPrefix,
           name: key.name,
           requests: keyData.requests,
