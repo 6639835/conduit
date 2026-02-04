@@ -68,6 +68,19 @@ export interface PluginHooks {
   onApiKeyRevoked?: (apiKey: ApiKeyInfo) => Promise<void>;
 }
 
+/**
+ * Hook names whose functions take a single context argument and resolve to the
+ * same context type (i.e., "pipeline" hooks).
+ */
+export type ContextHookName = keyof PluginHooks & {
+  [K in keyof PluginHooks]: NonNullable<PluginHooks[K]> extends (context: infer C) => Promise<infer R>
+    ? (C extends R ? (R extends C ? K : never) : never)
+    : never;
+}[keyof PluginHooks];
+
+export type ContextHookContext<T extends ContextHookName> =
+  NonNullable<PluginHooks[T]> extends (context: infer C) => Promise<any> ? C : never;
+
 export interface RequestContext {
   requestId: string;
   apiKeyId: string;

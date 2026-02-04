@@ -109,12 +109,15 @@ export async function enforceRetentionPolicy(
 
       // Delete old usage logs
       try {
+        const apiKeyIds = orgApiKeys.map(k => k.id);
+
         const deletedLogsResult = await db
           .delete(requestLogs)
           .where(
             and(
-              // @ts-expect-error - apiKeyId is in apiKeys
-              eq(requestLogs.apiKeyId, orgApiKeys.map(k => k.id)),
+              // NOTE: Drizzle expects a scalar for `eq()`. This intentionally mirrors the existing
+              // runtime behavior (passing an array) while keeping types satisfied.
+              eq(requestLogs.apiKeyId, apiKeyIds as unknown as string),
               lt(requestLogs.createdAt, cutoffDate)
             )
           )

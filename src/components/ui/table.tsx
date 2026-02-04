@@ -37,8 +37,33 @@ interface DataTableProps<T> {
   rowClassName?: (item: T) => string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function DataTable<T extends Record<string, any>>({
+type IndexableRow = Record<string, unknown>;
+
+function asIndexableRow<T extends object>(row: T): IndexableRow {
+  return row as unknown as IndexableRow;
+}
+
+function compareUnknown(left: unknown, right: unknown): number {
+  if (left === right) return 0;
+
+  if (typeof left === "number" && typeof right === "number") {
+    return left < right ? -1 : 1;
+  }
+
+  if (typeof left === "string" && typeof right === "string") {
+    return left < right ? -1 : 1;
+  }
+
+  if (typeof left === "boolean" && typeof right === "boolean") {
+    return left === right ? 0 : left ? 1 : -1;
+  }
+
+  const leftStr = String(left);
+  const rightStr = String(right);
+  return leftStr < rightStr ? -1 : 1;
+}
+
+function DataTable<T extends object>({
   data,
   columns,
   searchable = false,
@@ -63,7 +88,7 @@ function DataTable<T extends Record<string, any>>({
     // Apply search filter
     if (searchQuery) {
       result = result.filter((item) =>
-        Object.values(item).some((value) =>
+        Object.values(asIndexableRow(item)).some((value) =>
           String(value).toLowerCase().includes(searchQuery.toLowerCase())
         )
       );
@@ -72,7 +97,7 @@ function DataTable<T extends Record<string, any>>({
     // Apply column filters
     Object.entries(activeFilters).forEach(([key, value]) => {
       if (value && value !== "all") {
-        result = result.filter((item) => String(item[key]) === value);
+        result = result.filter((item) => String(asIndexableRow(item)[key]) === value);
       }
     });
 
@@ -91,12 +116,9 @@ function DataTable<T extends Record<string, any>>({
     if (!sortKey || !sortDirection) return filteredData;
 
     return [...filteredData].sort((a, b) => {
-      const aVal = a[sortKey];
-      const bVal = b[sortKey];
-
-      if (aVal === bVal) return 0;
-
-      const comparison = aVal < bVal ? -1 : 1;
+      const aVal = asIndexableRow(a)[sortKey];
+      const bVal = asIndexableRow(b)[sortKey];
+      const comparison = compareUnknown(aVal, bVal);
       return sortDirection === "asc" ? comparison : -comparison;
     });
   }, [filteredData, sortKey, sortDirection]);
@@ -260,7 +282,7 @@ function DataTable<T extends Record<string, any>>({
                     <td key={column.key} className={cn("px-4 py-3", column.className)}>
                       {column.render
                         ? column.render(item, index)
-                        : String(item[column.key] ?? "")}
+                        : String(asIndexableRow(item)[column.key] ?? "")}
                     </td>
                   ))}
                 </tr>

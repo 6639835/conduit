@@ -3,10 +3,7 @@
  * Manages plugin installation, configuration, and execution
  */
 
-import {
-  Plugin,
-  PluginHooks,
-} from './types';
+import type { ContextHookContext, ContextHookName, Plugin, PluginHooks } from './types';
 import { kv } from '@vercel/kv';
 
 class PluginRegistry {
@@ -162,10 +159,10 @@ class PluginRegistry {
   /**
    * Execute a hook across all enabled plugins
    */
-  async executeHook<T extends keyof PluginHooks>(
-    hookName: T,
-    context: Parameters<NonNullable<PluginHooks[T]>>[0]
-  ): Promise<typeof context> {
+  async executeHook<K extends keyof PluginHooks>(
+    hookName: K & ContextHookName,
+    context: ContextHookContext<K & ContextHookName>
+  ): Promise<ContextHookContext<K & ContextHookName>> {
     let updatedContext = context;
 
     for (const pluginId of this.enabledPlugins) {
@@ -178,8 +175,9 @@ class PluginRegistry {
       try {
         const startTime = Date.now();
 
-        // @ts-expect-error - TypeScript can't infer hook signature properly
-        updatedContext = await hook(updatedContext);
+        updatedContext = await (hook as unknown as (
+          ctx: ContextHookContext<K & ContextHookName>
+        ) => Promise<ContextHookContext<K & ContextHookName>>)(updatedContext);
 
         const executionTime = Date.now() - startTime;
 
