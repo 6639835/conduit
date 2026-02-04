@@ -87,7 +87,15 @@ export function isRetryableError(
   statusCode?: number
 ): boolean {
   // Retry on network errors
-  if (error.name === 'FetchError' || error.code === 'ECONNREFUSED') {
+  if (
+    error.name === 'FetchError'
+    || error.name === 'AbortError'
+    || error.code === 'ECONNREFUSED'
+    || error.code === 'ECONNRESET'
+    || error.code === 'ETIMEDOUT'
+    || (error instanceof TypeError && /fetch/i.test(error.message))
+    || /timed out/i.test(error.message)
+  ) {
     return true;
   }
 
@@ -276,7 +284,7 @@ export async function makeProxyRequestWithStrategy(
   method: string,
   headers: Headers,
   body?: unknown
-): Promise<Response> {
+): Promise<{ response: Response; provider: ProviderSchema }> {
   if (providers.length === 0) {
     throw new Error('No providers available');
   }
@@ -335,7 +343,7 @@ export async function makeProxyRequestWithStrategy(
 
       // Success - decrement load and return
       await decrementProviderLoad(provider.id);
-      return response;
+      return { response, provider };
     } catch (error) {
       // Request failed - decrement load
       await decrementProviderLoad(provider.id);

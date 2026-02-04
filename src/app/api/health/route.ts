@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { kv } from '@vercel/kv';
+import { sql } from 'drizzle-orm';
 
 export const runtime = 'edge';
 
@@ -15,7 +16,7 @@ export async function GET() {
   // Check database connection
   try {
     const dbStart = Date.now();
-    await db.execute('SELECT 1');
+    await db.execute(sql`select 1`);
     checks.database = {
       status: 'healthy',
       latency: Date.now() - dbStart,

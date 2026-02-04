@@ -23,7 +23,7 @@ export interface ProxyOptions {
 /**
  * Forward request to Claude API (Official, Bedrock, or Custom)
  * Preserves all headers, query params, and body
- * Replaces Authorization header with provider's API key
+ * Injects provider credential and removes gateway-only auth headers
  */
 export async function proxyToClaudeOfficial(options: ProxyOptions): Promise<Response> {
   const { provider, path, method, headers, body } = options;
@@ -39,16 +39,25 @@ export async function proxyToClaudeOfficial(options: ProxyOptions): Promise<Resp
     // Create new headers object (clone and modify)
     const proxyHeaders = new Headers();
 
-    // Copy headers from original request (except Authorization and Host)
-    const excludeHeaders = ['authorization', 'host', 'connection', 'content-length'];
+    // Copy headers from original request, removing gateway-only and hop-by-hop headers
+    const excludeHeaders = [
+      'authorization',
+      'x-api-key',
+      'x-totp-code',
+      'x-signature',
+      'x-timestamp',
+      'host',
+      'connection',
+      'content-length',
+    ];
     headers.forEach((value, key) => {
       if (!excludeHeaders.includes(key.toLowerCase())) {
         proxyHeaders.set(key, value);
       }
     });
 
-    // Set target API key
-    proxyHeaders.set('Authorization', `Bearer ${targetApiKey}`);
+    // Set target API key (Anthropic uses x-api-key)
+    proxyHeaders.set('x-api-key', targetApiKey);
 
     // Set anthropic-version header if not present (updated to latest stable version)
     if (!proxyHeaders.has('anthropic-version')) {

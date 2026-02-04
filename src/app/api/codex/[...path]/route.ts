@@ -11,11 +11,12 @@ import { validateIpAccess, getClientIp } from '@/lib/security/ip-security';
 import { verifyHmacSignature, extractHmacHeaders } from '@/lib/security/hmac';
 import { isKeyExpired } from '@/lib/key-rotation';
 import { getCachedResponse, setCachedResponse, generateCacheKey, isCacheable } from '@/lib/cache';
-import { transformResponse, type TransformationRule } from '@/lib/proxy/response-transformer';
+import { transformResponse, type TransformationRule, coerceTransformationRules } from '@/lib/proxy/response-transformer';
 import { z } from 'zod';
 import { selectProvidersForRequest } from '@/lib/proxy/provider-selector';
 import { makeProxyRequestWithStrategy } from '@/lib/proxy/failover';
 import { verifyTOTP } from '@/lib/security/2fa';
+import { readJsonBodyIfPresent } from '@/lib/http/request-body';
 
 export const runtime = 'edge';
 
@@ -118,25 +119,23 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    let body = null;
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      const contentType = request.headers.get('content-type');
-      if (contentType?.includes('application/json')) {
-        try {
-          body = await request.json();
-        } catch (error) {
-          console.error('Failed to parse request body as JSON:', error);
-          return NextResponse.json(
-            {
-              error: {
-                type: 'invalid_request_error',
-                message: 'Invalid JSON in request body',
-              },
-            },
-            { status: 400 }
-          );
-        }
-      }
+    let body: unknown = null;
+    let rawBodyText = '';
+    try {
+      const parsed = await readJsonBodyIfPresent(request);
+      body = parsed.body;
+      rawBodyText = parsed.rawBodyText;
+    } catch (error) {
+      console.error('Failed to parse request body as JSON:', error);
+      return NextResponse.json(
+        {
+          error: {
+            type: 'invalid_request_error',
+            message: 'Invalid JSON in request body',
+          },
+        },
+        { status: 400 }
+      );
     }
 
     if (apiKey.hmacEnabled && apiKey.hmacSecret) {
@@ -154,7 +153,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         );
       }
 
-      const requestBody = body ? JSON.stringify(body) : '';
+      const requestBody = rawBodyText;
       const hmacResult = await verifyHmacSignature(
         apiKey.hmacSecret,
         signature,
@@ -240,7 +239,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       );
     }
 
-    const primaryProvider = selectedProviders[0];
+    const cachePolicyProvider = selectedProviders.find((p) => p.cacheEnabled);
 
     const rateLimitResult = await checkRateLimit(apiKey);
     if (!rateLimitResult.allowed) {
@@ -252,8 +251,13 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       return createQuotaExceededResponse(quotaResult);
     }
 
-    if (body && primaryProvider.cacheEnabled && isCacheable(body)) {
-      const cacheKey = await generateCacheKey((body as { model?: string }).model || 'codex', body as Record<string, unknown>);
+    const bodyRecord =
+      body && typeof body === 'object' && body !== null && !Array.isArray(body)
+        ? (body as Record<string, unknown>)
+        : null;
+
+    if (bodyRecord && cachePolicyProvider && isCacheable(bodyRecord)) {
+      const cacheKey = await generateCacheKey((bodyRecord as { model?: string }).model || 'codex', bodyRecord);
       const cachedResponse = await getCachedResponse(cacheKey);
 
       if (cachedResponse) {
@@ -269,7 +273,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       }
     }
 
-    const upstreamResponse = await makeProxyRequestWithStrategy(
+    const { response: upstreamResponse, provider: usedProvider } = await makeProxyRequestWithStrategy(
       apiKey,
       selectedProviders,
       path,
@@ -328,13 +332,13 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       });
 
       if (
-        body &&
-        primaryProvider.cacheEnabled &&
-        isCacheable(body) &&
+        bodyRecord &&
+        usedProvider.cacheEnabled &&
+        isCacheable(bodyRecord) &&
         upstreamResponse.status === 200
       ) {
-        const cacheKey = await generateCacheKey(usageData.model, body as Record<string, unknown>);
-        const ttl = primaryProvider.cacheTtlSeconds || 300;
+        const cacheKey = await generateCacheKey(usageData.model, bodyRecord);
+        const ttl = usedProvider.cacheTtlSeconds || 300;
 
         setCachedResponse(
           cacheKey,
@@ -355,18 +359,19 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     let finalHeaders = headers;
     let finalStatus = upstreamResponse.status;
 
-    if (apiKey.transformationRules && Array.isArray(apiKey.transformationRules)) {
+    const transformationRules = coerceTransformationRules(apiKey.transformationRules);
+    if (transformationRules.length > 0) {
       try {
         const transformableResponse = {
           status: upstreamResponse.status,
           statusText: upstreamResponse.statusText || '',
-          headers: Object.fromEntries(headers.entries()),
+          headers: Object.fromEntries([...headers.entries()].map(([k, v]) => [k.toLowerCase(), v])),
           body: responseBody,
         };
 
         const transformed = await transformResponse(
           transformableResponse,
-          apiKey.transformationRules as TransformationRule[],
+          transformationRules as TransformationRule[],
           {
             model: usageData?.model,
             endpoint: path,

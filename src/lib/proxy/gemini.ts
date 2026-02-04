@@ -40,6 +40,10 @@ export async function proxyToGemini(options: ProxyOptions): Promise<Response> {
       'host',
       'connection',
       'content-length',
+      'x-api-key',
+      'x-totp-code',
+      'x-signature',
+      'x-timestamp',
       'x-goog-api-key',
     ];
     headers.forEach((value, key) => {

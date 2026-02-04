@@ -13,6 +13,12 @@ import { SystemNotifications } from '@/lib/notifications';
 
 const QUOTA_CACHE_TTL = 60; // Cache quota status for 60 seconds
 
+function shouldFailOpen(): boolean {
+  // Default: fail-open in non-production to avoid blocking development.
+  // In production, require explicit opt-in to fail-open.
+  return process.env.NODE_ENV !== 'production' || process.env.LIMITER_FAIL_OPEN === 'true';
+}
+
 /**
  * Send quota warning notification if usage crosses threshold
  * Sends at 80% and 90% thresholds
@@ -226,9 +232,16 @@ export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
     };
   } catch (error) {
     console.error('Quota check error:', error);
-    // Fail open: allow request if check fails
+    if (shouldFailOpen()) {
+      return { allowed: true };
+    }
+
+    // Fail closed when the limiter is unavailable in production.
+    // The response helper will translate this into a 503.
     return {
-      allowed: true,
+      allowed: false,
+      retryAfter: 1,
+      reset: Math.floor((Date.now() + 60_000) / 1000),
     };
   }
 }
@@ -273,6 +286,21 @@ export function createQuotaExceededResponse(result: RateLimitResult): Response {
   }
   if (result.retryAfter !== undefined) {
     headers.set('Retry-After', result.retryAfter.toString());
+  }
+
+  if (result.limit === undefined) {
+    return new Response(
+      JSON.stringify({
+        error: {
+          type: 'quota_unavailable',
+          message: 'Quota enforcement is temporarily unavailable. Please try again shortly.',
+        },
+      }),
+      {
+        status: 503,
+        headers,
+      }
+    );
   }
 
   return new Response(

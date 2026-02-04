@@ -117,7 +117,7 @@ export default function HomePage() {
                 Authorization Header
               </p>
               <code className="block px-4 py-3 bg-muted rounded-lg font-mono text-sm overflow-x-auto">
-                x-api-key: sk-cond_your-key-here
+                Authorization: Bearer sk-cond_your-key-here
               </code>
             </div>
           </div>

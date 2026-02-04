@@ -7,6 +7,12 @@ import { kv } from '@vercel/kv';
 import type { ApiKey } from '@/lib/db/schema';
 import type { RateLimitResult } from '@/types';
 
+function shouldFailOpen(): boolean {
+  // Default: fail-open in non-production to avoid blocking development.
+  // In production, require explicit opt-in to fail-open.
+  return process.env.NODE_ENV !== 'production' || process.env.LIMITER_FAIL_OPEN === 'true';
+}
+
 /**
  * Check rate limits for an API key
  * Returns whether the request is allowed and remaining quota
@@ -73,10 +79,13 @@ export async function checkRateLimit(apiKey: ApiKey): Promise<RateLimitResult> {
     };
   } catch (error) {
     console.error('Rate limit check error:', error);
-    // Fail open: allow request if KV is unavailable
-    return {
-      allowed: true,
-    };
+    if (shouldFailOpen()) {
+      return { allowed: true };
+    }
+
+    // Fail closed when the limiter is unavailable in production.
+    // The response helper will translate this into a 503.
+    return { allowed: false, retryAfter: 1, reset: Math.floor((now + 60_000) / 1000) };
   }
 }
 
@@ -107,6 +116,21 @@ export function createRateLimitResponse(result: RateLimitResult): Response {
   });
 
   addRateLimitHeaders(headers, result);
+
+  if (result.limit === undefined) {
+    return new Response(
+      JSON.stringify({
+        error: {
+          type: 'rate_limit_unavailable',
+          message: 'Rate limiting is temporarily unavailable. Please try again shortly.',
+        },
+      }),
+      {
+        status: 503,
+        headers,
+      }
+    );
+  }
 
   return new Response(
     JSON.stringify({

@@ -146,8 +146,8 @@ export function extractApiKeyFromHeader(authHeader: string | null): string | nul
 export async function validateApiKeyFromHeaders(
   headers: Headers
 ): Promise<ApiKey | null> {
-  const authHeader = headers.get('authorization');
-  const apiKey = extractApiKeyFromHeader(authHeader);
+  const headerValue = headers.get('authorization') ?? headers.get('x-api-key');
+  const apiKey = extractApiKeyFromHeader(headerValue);
 
   if (!apiKey) {
     return null;

@@ -39,8 +39,17 @@ export async function proxyToOpenAI(options: ProxyOptions): Promise<Response> {
     // Create new headers object (clone and modify)
     const proxyHeaders = new Headers();
 
-    // Copy headers from original request (except Authorization and Host)
-    const excludeHeaders = ['authorization', 'host', 'connection', 'content-length'];
+    // Copy headers from original request, removing gateway-only and hop-by-hop headers
+    const excludeHeaders = [
+      'authorization',
+      'x-api-key',
+      'x-totp-code',
+      'x-signature',
+      'x-timestamp',
+      'host',
+      'connection',
+      'content-length',
+    ];
     headers.forEach((value, key) => {
       if (!excludeHeaders.includes(key.toLowerCase())) {
         proxyHeaders.set(key, value);

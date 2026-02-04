@@ -1,4 +1,5 @@
 import { ApiKey } from '../db/schema';
+import { shouldTrustProxyHeaders } from './trust-proxy';
 
 /**
  * Checks if an IP address matches a pattern (supports CIDR notation)
@@ -12,11 +13,13 @@ function matchesIpPattern(ip: string, pattern: string): boolean {
 
   // CIDR notation check
   if (pattern.includes('/')) {
+    if (!isValidCidr(pattern) || !isValidIpv4(ip)) return false;
     return isIpInCidr(ip, pattern);
   }
 
   // Wildcard support (e.g., 192.168.1.*)
   if (pattern.includes('*')) {
+    if (!isValidIpv4(ip)) return false;
     const regex = new RegExp(
       '^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$'
     );
@@ -35,6 +38,9 @@ function matchesIpPattern(ip: string, pattern: string): boolean {
 function isIpInCidr(ip: string, cidr: string): boolean {
   const [range, bits] = cidr.split('/');
   const prefixLength = parseInt(bits, 10);
+  if (!isValidIpv4(range) || !Number.isFinite(prefixLength) || prefixLength < 0 || prefixLength > 32) {
+    return false;
+  }
 
   // Create mask using bit shifting to avoid integer overflow
   // Force unsigned 32-bit integer
@@ -52,7 +58,9 @@ function isIpInCidr(ip: string, cidr: string): boolean {
  * @returns Numeric representation
  */
 function ipToNumber(ip: string): number {
-  return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet), 0);
+  return ip
+    .split('.')
+    .reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0);
 }
 
 /**
@@ -68,16 +76,16 @@ export function validateIpAccess(
   allowed: boolean;
   reason?: string;
 } {
-  // If IP cannot be determined, fail closed (reject request)
-  if (!ip) {
-    return {
-      allowed: false,
-      reason: 'Unable to determine client IP address',
-    };
-  }
-
   const whitelist = apiKey.ipWhitelist as string[] | null;
   const blacklist = apiKey.ipBlacklist as string[] | null;
+  const hasRules = (whitelist && whitelist.length > 0) || (blacklist && blacklist.length > 0);
+
+  // If IP cannot be determined, only fail closed when rules are configured.
+  if (!ip) {
+    return hasRules
+      ? { allowed: false, reason: 'Unable to determine client IP address' }
+      : { allowed: true };
+  }
 
   // Check blacklist first
   if (blacklist && blacklist.length > 0) {
@@ -110,6 +118,15 @@ export function validateIpAccess(
  * @returns The client IP address, or null if not found
  */
 export function getClientIp(request: Request): string | null {
+  const reqWithIp = request as Request & { ip?: string };
+  if (typeof reqWithIp.ip === 'string' && reqWithIp.ip.trim()) {
+    return reqWithIp.ip.trim();
+  }
+
+  if (!shouldTrustProxyHeaders()) {
+    return null;
+  }
+
   // Check common headers for forwarded IPs (in order of preference)
   const headers = request.headers;
 

@@ -6,6 +6,7 @@
 import { db } from '@/lib/db';
 import { usageLogs } from '@/lib/db/schema';
 import { calculateCost } from './cost-calculator';
+import { shouldTrustProxyHeaders } from '@/lib/security/trust-proxy';
 
 export interface LogUsageParams {
   apiKeyId: string;
@@ -84,9 +85,12 @@ export function extractRequestMetadata(headers: Headers): {
   ipAddress?: string;
   country?: string;
 } {
-  // Extract and trim IP address (x-forwarded-for can have spaces after commas)
-  const forwardedFor = headers.get('x-forwarded-for');
-  const ipAddress = forwardedFor?.split(',')[0]?.trim() || headers.get('x-real-ip')?.trim() || undefined;
+  const ipAddress = shouldTrustProxyHeaders()
+    ? (headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+        || headers.get('x-real-ip')?.trim()
+        || headers.get('cf-connecting-ip')?.trim()
+        || undefined)
+    : undefined;
 
   return {
     userAgent: headers.get('user-agent') || undefined,

@@ -9,7 +9,18 @@ export const runtime = 'edge';
  * GET /api/metrics - Prometheus-compatible metrics endpoint
  * Returns key performance metrics for monitoring
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const metricsSecret = process.env.METRICS_SECRET;
+  if (!metricsSecret) {
+    console.error('METRICS_SECRET environment variable is not configured');
+    return NextResponse.json({ error: 'METRICS_SECRET not configured' }, { status: 500 });
+  }
+
+  const authHeader = request.headers.get('authorization');
+  if (authHeader !== `Bearer ${metricsSecret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     // Get current timestamp for 24h lookback
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);

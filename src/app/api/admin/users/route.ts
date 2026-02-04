@@ -11,7 +11,7 @@ interface CreateUserRequest {
   email: string;
   name: string;
   password: string;
-  role?: 'admin' | 'user';
+  role?: string;
 }
 
 interface CreateUserResponse {
@@ -32,7 +32,7 @@ interface ListUsersResponse {
     id: string;
     email: string;
     name: string | null;
-    role: 'admin' | 'user';
+    role: string;
     isActive: boolean;
     createdAt: string;
     lastActiveAt: string | null;
@@ -164,8 +164,7 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(admins.organizationId, organizationId));
     }
 
-    // Get all users with their API key counts
-    const users = await db
+    const usersWithCounts = await db
       .select({
         id: admins.id,
         email: admins.email,
@@ -176,42 +175,42 @@ export async function GET(request: NextRequest) {
         isActive: admins.isActive,
         createdAt: admins.createdAt,
         updatedAt: admins.updatedAt,
+        apiKeyCount: sql<number>`count(${apiKeys.id})::int`,
       })
       .from(admins)
+      .leftJoin(apiKeys, eq(apiKeys.createdBy, admins.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .groupBy(
+        admins.id,
+        admins.email,
+        admins.name,
+        admins.role,
+        admins.organizationId,
+        admins.permissions,
+        admins.isActive,
+        admins.createdAt,
+        admins.updatedAt
+      )
       .orderBy(desc(admins.createdAt));
 
-    // Get API key counts for each user
-    const usersWithCounts = await Promise.all(
-      users.map(async (user) => {
-        const keyCount = await db
-          .select({
-            count: sql<number>`count(*)`,
-          })
-          .from(apiKeys)
-          .where(eq(apiKeys.createdBy, user.id))
-          .execute();
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          organizationId: user.organizationId,
-          permissions: user.permissions,
-          isActive: user.isActive,
-          createdAt: user.createdAt.toISOString(),
-          lastActiveAt: user.updatedAt.toISOString(),
-          apiKeyCount: keyCount[0]?.count || 0,
-        };
-      })
-    );
+    const usersWithCountsResponse = usersWithCounts.map((user) => ({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      organizationId: user.organizationId,
+      permissions: user.permissions,
+      isActive: user.isActive,
+      createdAt: user.createdAt.toISOString(),
+      lastActiveAt: user.updatedAt.toISOString(),
+      apiKeyCount: user.apiKeyCount || 0,
+    }));
 
     return NextResponse.json(
       {
         success: true,
-        users: usersWithCounts,
-        total: usersWithCounts.length,
+        users: usersWithCountsResponse,
+        total: usersWithCountsResponse.length,
         canManageUsers: authResult.adminContext.role !== Role.VIEWER,
         currentAdminRole: authResult.adminContext.role,
       } as ListUsersResponse,

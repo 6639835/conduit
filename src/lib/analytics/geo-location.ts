@@ -83,7 +83,7 @@ export function getCountryFromIp(ip: string): GeoLocation | null {
 export async function getLocationFromIpAPI(ip: string): Promise<GeoLocation | null> {
   try {
     // Use a free IP geolocation API (ip-api.com)
-    const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,regionName,city,lat,lon`, {
+    const response = await fetch(`https://ip-api.com/json/${ip}?fields=status,country,countryCode,regionName,city,lat,lon`, {
       signal: AbortSignal.timeout(3000), // 3 second timeout
     });
 

@@ -28,19 +28,91 @@ export interface TransformAction {
   addHeaders?: Record<string, string>;
   removeHeaders?: string[];
   modifyHeaders?: Record<string, (value: string) => string>;
+  renameHeaders?: Record<string, string>;
 
   // Body transformations
   bodyTransform?: (body: unknown) => unknown;
+  body?: StoredBodyAction;
 
   // Custom transformation function
   customTransform?: (response: TransformableResponse) => TransformableResponse;
 }
+
+export type StoredBodyAction =
+  | { mode: 'merge'; value: Record<string, unknown> }
+  | { mode: 'redact'; fields: string[] }
+  | { mode: 'replaceErrorMessage'; message: string };
 
 export interface TransformableResponse {
   status: number;
   statusText: string;
   headers: Record<string, string>;
   body: unknown;
+}
+
+export function coerceTransformationRules(input: unknown): TransformationRule[] {
+  if (!Array.isArray(input)) return [];
+
+  const rules: TransformationRule[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue;
+    const maybe = raw as Partial<TransformationRule> & { action?: unknown };
+    if (typeof maybe.id !== 'string' || typeof maybe.name !== 'string') continue;
+
+    const type = maybe.type;
+    if (type !== 'header' && type !== 'body' && type !== 'custom') continue;
+
+    const actionRaw = (maybe as { action?: unknown }).action;
+    if (!actionRaw || typeof actionRaw !== 'object') continue;
+
+    const actionIn = actionRaw as Record<string, unknown>;
+    const action: TransformAction = {};
+
+    if (actionIn.addHeaders && typeof actionIn.addHeaders === 'object' && !Array.isArray(actionIn.addHeaders)) {
+      action.addHeaders = actionIn.addHeaders as Record<string, string>;
+    }
+    if (Array.isArray(actionIn.removeHeaders) && actionIn.removeHeaders.every((h) => typeof h === 'string')) {
+      action.removeHeaders = actionIn.removeHeaders as string[];
+    }
+    if (actionIn.renameHeaders && typeof actionIn.renameHeaders === 'object' && !Array.isArray(actionIn.renameHeaders)) {
+      action.renameHeaders = actionIn.renameHeaders as Record<string, string>;
+    }
+
+    // Allow function-based transforms when rules are provided programmatically.
+    if (typeof actionIn.bodyTransform === 'function') action.bodyTransform = actionIn.bodyTransform as TransformAction['bodyTransform'];
+    if (typeof actionIn.customTransform === 'function') action.customTransform = actionIn.customTransform as TransformAction['customTransform'];
+    if (actionIn.modifyHeaders && typeof actionIn.modifyHeaders === 'object' && !Array.isArray(actionIn.modifyHeaders)) {
+      const mh = actionIn.modifyHeaders as Record<string, unknown>;
+      if (Object.values(mh).every((v) => typeof v === 'function')) {
+        action.modifyHeaders = mh as Record<string, (value: string) => string>;
+      }
+    }
+
+    // JSON-safe body transforms
+    if (actionIn.body && typeof actionIn.body === 'object' && !Array.isArray(actionIn.body)) {
+      const b = actionIn.body as Record<string, unknown>;
+      const mode = b.mode;
+      if (mode === 'merge' && b.value && typeof b.value === 'object' && !Array.isArray(b.value)) {
+        action.body = { mode, value: b.value as Record<string, unknown> };
+      } else if (mode === 'redact' && Array.isArray(b.fields) && b.fields.every((f) => typeof f === 'string')) {
+        action.body = { mode, fields: b.fields as string[] };
+      } else if (mode === 'replaceErrorMessage' && typeof b.message === 'string') {
+        action.body = { mode, message: b.message };
+      }
+    }
+
+    rules.push({
+      id: maybe.id,
+      name: maybe.name,
+      enabled: typeof maybe.enabled === 'boolean' ? maybe.enabled : true,
+      priority: typeof maybe.priority === 'number' ? maybe.priority : 100,
+      type,
+      condition: maybe.condition,
+      action,
+    });
+  }
+
+  return rules;
 }
 
 /**
@@ -144,6 +216,17 @@ async function applyTransformation(
     }
   }
 
+  if (action.renameHeaders) {
+    transformed.headers = { ...transformed.headers };
+    for (const [from, to] of Object.entries(action.renameHeaders)) {
+      if (from === to) continue;
+      if (transformed.headers[from] !== undefined) {
+        transformed.headers[to] = transformed.headers[from];
+        delete transformed.headers[from];
+      }
+    }
+  }
+
   if (action.modifyHeaders) {
     transformed.headers = { ...transformed.headers };
     for (const [header, modifier] of Object.entries(action.modifyHeaders)) {
@@ -156,6 +239,32 @@ async function applyTransformation(
   // Apply body transformation
   if (action.bodyTransform) {
     transformed.body = action.bodyTransform(transformed.body);
+  }
+
+  if (action.body) {
+    if (action.body.mode === 'merge') {
+      if (typeof transformed.body === 'object' && transformed.body !== null && !Array.isArray(transformed.body)) {
+        transformed.body = { ...(transformed.body as Record<string, unknown>), ...action.body.value };
+      }
+    } else if (action.body.mode === 'redact') {
+      if (typeof transformed.body === 'object' && transformed.body !== null && !Array.isArray(transformed.body)) {
+        const copy = { ...(transformed.body as Record<string, unknown>) };
+        for (const field of action.body.fields) {
+          delete copy[field];
+        }
+        transformed.body = copy;
+      }
+    } else if (action.body.mode === 'replaceErrorMessage') {
+      if (typeof transformed.body === 'object' && transformed.body !== null && !Array.isArray(transformed.body)) {
+        const copy = { ...(transformed.body as Record<string, unknown>) };
+        const err = copy.error;
+        if (err && typeof err === 'object' && !Array.isArray(err)) {
+          (err as Record<string, unknown>).message = action.body.message;
+          copy.error = err;
+          transformed.body = copy;
+        }
+      }
+    }
   }
 
   // Apply custom transformation

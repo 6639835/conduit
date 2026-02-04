@@ -82,9 +82,9 @@ export async function POST(request: NextRequest) {
           : {
               method: 'POST',
               headers: {
-                'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json',
                 'anthropic-version': '2023-06-01',
+                'x-api-key': apiKey,
               },
               body: JSON.stringify({
                 model: 'claude-3-haiku-20240307',

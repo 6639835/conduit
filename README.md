@@ -31,6 +31,8 @@ KV_REST_API_URL=https://....kv.vercel-storage.com
 KV_REST_API_TOKEN=xxx
 NEXTAUTH_SECRET=your-secret-32-chars
 NEXTAUTH_URL=http://localhost:3000
+CRON_SECRET=your-long-random-cron-secret
+METRICS_SECRET=your-long-random-metrics-secret
 API_KEY_ENCRYPTION_KEY=your-256-bit-hex-key
 CLAUDE_API_KEY=sk-ant-your-key-here
 ```

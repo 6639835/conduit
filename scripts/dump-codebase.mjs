@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -59,30 +59,79 @@ function languageTag(filePath) {
   }
 }
 
+function isPathInside(parent, child) {
+  const rel = path.relative(parent, child);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const outPath = String(args.get('--out') ?? 'CODEBASE_DUMP.md');
   const maxBytes = Number(args.get('--max-bytes') ?? 2 * 1024 * 1024); // 2MB per file default
   const root = process.cwd();
 
-  const rgCmd = [
-    'rg',
-    '--files',
-    "-g'!.git/**'",
-    "-g'!.next/**'",
-    "-g'!node_modules/**'",
-    "-g'!.vercel/**'",
-    "-g'!dist/**'",
-    "-g'!build/**'",
-    "-g'!coverage/**'",
-  ].join(' ');
+  const absOutPath = path.resolve(root, outPath);
+  if (!isPathInside(root, absOutPath)) {
+    process.stderr.write(`Refusing to write outside repo root: ${outPath}\n`);
+    process.exit(1);
+  }
 
-  const files = execSync(rgCmd, { encoding: 'utf8' })
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
+  const rgArgs = [
+    '--files',
+    '-g',
+    '!.git/**',
+    '-g',
+    '!.next/**',
+    '-g',
+    '!node_modules/**',
+    '-g',
+    '!.vercel/**',
+    '-g',
+    '!dist/**',
+    '-g',
+    '!build/**',
+    '-g',
+    '!coverage/**',
+    // avoid leaking secrets in shared dumps
+    '-g',
+    '!.env*',
+    '-g',
+    '!**/*.pem',
+    '-g',
+    '!**/*.key',
+    '-g',
+    '!**/*.p12',
+    '-g',
+    '!**/*.jks',
+    '-g',
+    '!**/*.crt',
+    '-g',
+    '!**/*.cer',
+    '-g',
+    '!**/*.der',
+    '-g',
+    '!**/*.sqlite*',
+    '-g',
+    '!**/*.db',
+  ];
+
+  let files;
+  try {
+    files = execFileSync('rg', rgArgs, { encoding: 'utf8' })
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch (err) {
+    process.stderr.write('Failed to list files via `rg`. Is ripgrep installed?\n');
+    process.stderr.write(String(err) + '\n');
+    process.exit(1);
+  }
+
+  const relOutPath = path.relative(root, absOutPath);
+  files = files
     .filter((p) => p !== 'package-lock.json')
-    .filter((p) => p !== 'tsconfig.tsbuildinfo');
+    .filter((p) => p !== 'tsconfig.tsbuildinfo')
+    .filter((p) => p !== relOutPath);
 
   const binaryExts = new Set([
     '.ico',
@@ -176,8 +225,8 @@ function main() {
   lines.push(`- Skipped (unreadable): ${skippedUnreadable}`);
   lines.push('');
 
-  fs.writeFileSync(path.join(root, outPath), lines.join('\n'), 'utf8');
-  process.stdout.write(`Wrote ${outPath} (included ${included} files)\n`);
+  fs.writeFileSync(absOutPath, lines.join('\n'), 'utf8');
+  process.stdout.write(`Wrote ${relOutPath} (included ${included} files)\n`);
 }
 
 main();
