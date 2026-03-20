@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { Loader2, Play, GitCompare, Bug, Clock, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { formatCost } from '@/lib/analytics/cost-calculator';
 
 interface ApiKey {
   id: string;
@@ -27,8 +28,8 @@ interface RequestLog {
   latencyMs: number | null;
   promptTokens: number | null;
   completionTokens: number | null;
-  cost: string | null;
-  createdAt: Date;
+  cost: number;
+  createdAt: string;
 }
 
 interface ReplayResult {
@@ -108,7 +109,7 @@ export default function DebugPage() {
       if (!res.ok) throw new Error('Failed to load requests');
 
       const data = await res.json();
-      setRecentRequests(data.data || []);
+      setRecentRequests(data.data || data.logs || []);
     } catch (error) {
       console.error('Error loading requests:', error);
     }
@@ -317,7 +318,7 @@ export default function DebugPage() {
                         <p className="text-xs text-muted-foreground">Latency</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium">${parseFloat(request.cost || '0').toFixed(4)}</p>
+                        <p className="font-medium">{formatCost(request.cost || 0)}</p>
                         <p className="text-xs text-muted-foreground">Cost</p>
                       </div>
                     </div>
@@ -356,7 +357,7 @@ export default function DebugPage() {
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground mb-1">Original Cost</p>
-                      <p className="font-medium">${parseFloat(selectedRequest.cost || '0').toFixed(4)}</p>
+                      <p className="font-medium">{formatCost(selectedRequest.cost || 0)}</p>
                     </div>
                   </div>
 
@@ -444,11 +445,11 @@ export default function DebugPage() {
                     <div className="grid grid-cols-3 gap-4 text-sm">
                       <div>
                         <p className="text-muted-foreground">Original</p>
-                        <p className="font-medium">${comparison.differences.cost.original.toFixed(4)}</p>
+                        <p className="font-medium">{formatCost(comparison.differences.cost.original)}</p>
                       </div>
                       <div>
                         <p className="text-muted-foreground">Replayed</p>
-                        <p className="font-medium">${comparison.differences.cost.replayed.toFixed(4)}</p>
+                        <p className="font-medium">{formatCost(comparison.differences.cost.replayed)}</p>
                       </div>
                       <div>
                         <p className="text-muted-foreground">Difference</p>
@@ -460,7 +461,7 @@ export default function DebugPage() {
                           ) : (
                             <TrendingUp className="h-3 w-3" />
                           )}
-                          ${Math.abs(comparison.differences.cost.diff).toFixed(4)}
+                          {formatCost(Math.abs(comparison.differences.cost.diff))}
                         </p>
                       </div>
                     </div>

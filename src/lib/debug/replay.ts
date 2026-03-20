@@ -7,6 +7,7 @@ import { db } from '@/lib/db';
 import { requestLogs } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { kv } from '@vercel/kv';
+import { calculateCost as calculateUsageCost } from '@/lib/analytics/cost-calculator';
 
 export interface ReplayRequest {
   id: string;
@@ -67,6 +68,28 @@ type RequestMetadata = {
   maxTokens?: number;
 };
 
+const REPLAY_HISTORY_LIMIT = 50;
+const DEBUG_LOG_LIMIT = 100;
+
+async function readKvList<T>(key: string): Promise<T[]> {
+  const raw = await kv.get<string>(key);
+
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as T[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeKvList<T>(key: string, items: T[], ttlSeconds: number): Promise<void> {
+  await kv.set(key, JSON.stringify(items), { ex: ttlSeconds });
+}
+
 export async function getRequestForReplay(requestId: string) {
   const [request] = await db
     .select()
@@ -89,7 +112,7 @@ export async function getRequestForReplay(requestId: string) {
     latencyMs: request.latencyMs || 0,
     promptTokens: request.promptTokens || 0,
     completionTokens: request.completionTokens || 0,
-    cost: parseFloat(request.cost?.toString() || '0'),
+    costCents: Number(request.cost || 0),
     createdAt: request.createdAt,
     metadata: request.metadata as RequestMetadata | null,
   };
@@ -151,8 +174,11 @@ export async function replayRequest(
       },
     };
 
-    // Store replay result
     await kv.set(`replay:${replayRecord.id}`, JSON.stringify(replayRecord), { ex: 86400 });
+    const historyKey = `replay:history:${originalRequest.apiKeyId}`;
+    const history = await readKvList<ReplayRequest>(historyKey);
+    history.unshift(replayRecord);
+    await writeKvList(historyKey, history.slice(0, REPLAY_HISTORY_LIMIT), 86400);
 
     return replayRecord;
   } catch (error) {
@@ -176,6 +202,10 @@ export async function replayRequest(
     };
 
     await kv.set(`replay:${replayRecord.id}`, JSON.stringify(replayRecord), { ex: 86400 });
+    const historyKey = `replay:history:${originalRequest.apiKeyId}`;
+    const history = await readKvList<ReplayRequest>(historyKey);
+    history.unshift(replayRecord);
+    await writeKvList(historyKey, history.slice(0, REPLAY_HISTORY_LIMIT), 86400);
 
     return replayRecord;
   }
@@ -219,10 +249,13 @@ export async function compareRequests(
       ? (latencyDiff / originalRequest.latencyMs) * 100
       : 0;
 
-  const replayCost = calculateCost(replayResultResponse?.usage || {});
-  const costDiff = replayCost - originalRequest.cost;
+  const replayCost = calculateReplayCostCents(
+    replay.model,
+    replayResultResponse?.usage || {}
+  );
+  const costDiff = replayCost - originalRequest.costCents;
   const costPercentChange =
-    originalRequest.cost > 0 ? (costDiff / originalRequest.cost) * 100 : 0;
+    originalRequest.costCents > 0 ? (costDiff / originalRequest.costCents) * 100 : 0;
 
   return {
     originalRequestId,
@@ -246,7 +279,7 @@ export async function compareRequests(
         percentChange: latencyPercentChange,
       },
       cost: {
-        original: originalRequest.cost,
+        original: originalRequest.costCents,
         replayed: replayCost,
         diff: costDiff,
         percentChange: costPercentChange,
@@ -305,13 +338,14 @@ function levenshteinDistance(str1: string, str2: string): number {
 /**
  * Calculate cost from usage
  */
-function calculateCost(usage: { promptTokens?: number; completionTokens?: number }): number {
-  // Simple cost calculation (mock)
+function calculateReplayCostCents(
+  model: string,
+  usage: { promptTokens?: number; completionTokens?: number }
+): number {
   const promptTokens = usage.promptTokens || 0;
   const completionTokens = usage.completionTokens || 0;
 
-  // Example pricing: $3 per million input tokens, $15 per million output tokens
-  return (promptTokens / 1000000) * 3 + (completionTokens / 1000000) * 15;
+  return calculateUsageCost(model, promptTokens, completionTokens);
 }
 
 /**
@@ -346,11 +380,13 @@ export async function batchReplayRequests(
  */
 export async function getReplayHistory(
   apiKeyId: string,
-  _limit: number = 50
+  limit: number = 50
 ): Promise<ReplayRequest[]> {
-  // In production, this would query a database table
-  // For now, we return an empty array
-  return [];
+  const history = await readKvList<ReplayRequest>(`replay:history:${apiKeyId}`);
+  return history.slice(0, limit).map((entry) => ({
+    ...entry,
+    replayedAt: new Date(entry.replayedAt),
+  }));
 }
 
 /**
@@ -415,8 +451,10 @@ export async function isDebugModeEnabled(apiKeyId: string): Promise<boolean> {
  * Log debug information
  */
 export async function logDebugInfo(info: DebugInfo): Promise<void> {
-  const key = `debug:log:${info.apiKey.id}:${info.requestId}`;
-  await kv.set(key, JSON.stringify(info), { ex: 3600 }); // 1 hour expiry
+  const key = `debug:logs:${info.apiKey.id}`;
+  const logs = await readKvList<DebugInfo>(key);
+  logs.unshift(info);
+  await writeKvList(key, logs.slice(0, DEBUG_LOG_LIMIT), 3600);
 }
 
 /**
@@ -424,9 +462,11 @@ export async function logDebugInfo(info: DebugInfo): Promise<void> {
  */
 export async function getDebugLogs(
   apiKeyId: string,
-  _limit: number = 50
+  limit: number = 50
 ): Promise<DebugInfo[]> {
-  // In production, this would scan KV keys or query a database
-  // For now, return empty array
-  return [];
+  const logs = await readKvList<DebugInfo>(`debug:logs:${apiKeyId}`);
+  return logs.slice(0, limit).map((entry) => ({
+    ...entry,
+    timestamp: new Date(entry.timestamp),
+  }));
 }

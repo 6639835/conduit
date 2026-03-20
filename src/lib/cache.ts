@@ -2,6 +2,15 @@ import { db } from './db';
 import { responseCache } from './db/schema';
 import { eq, lt } from 'drizzle-orm';
 
+export interface CachedResponseEntry {
+  response: unknown;
+  model: string;
+  tokensInput: number;
+  tokensOutput: number;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
 /**
  * Generates a cache key from request data using Web Crypto API
  * @param model - The model name
@@ -55,6 +64,13 @@ function stableStringify(value: unknown): string {
 export async function getCachedResponse(
   cacheKey: string
 ): Promise<unknown | null> {
+  const cached = await getCachedResponseEntry(cacheKey);
+  return cached?.response ?? null;
+}
+
+export async function getCachedResponseEntry(
+  cacheKey: string
+): Promise<CachedResponseEntry | null> {
   try {
     const [cached] = await db
       .select()
@@ -75,7 +91,14 @@ export async function getCachedResponse(
       return null;
     }
 
-    return cached.response;
+    return {
+      response: cached.response,
+      model: cached.model,
+      tokensInput: cached.tokensInput,
+      tokensOutput: cached.tokensOutput,
+      createdAt: cached.createdAt,
+      expiresAt: cached.expiresAt,
+    };
   } catch (error) {
     console.error('Cache retrieval error:', error);
     return null;

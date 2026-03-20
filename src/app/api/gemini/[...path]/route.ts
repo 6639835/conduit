@@ -5,18 +5,19 @@ import { cleanResponseHeaders } from '@/lib/proxy/claude-official';
 import { createGeminiStreamingResponse, isGeminiStreamingResponse, parseGeminiNonStreamingResponse } from '@/lib/proxy/gemini-streaming';
 import { checkRateLimit, addRateLimitHeaders, createRateLimitResponse } from '@/lib/rate-limit';
 import { checkQuota, createQuotaExceededResponse, incrementTokenUsage } from '@/lib/rate-limit/quota-checker';
-import { logUsageAsync, extractRequestMetadata } from '@/lib/analytics/logger';
+import { logProxyRequestAsync, extractRequestMetadata } from '@/lib/analytics/logger';
 import { UnauthorizedError } from '@/types';
 import { validateIpAccess, getClientIp } from '@/lib/security/ip-security';
 import { verifyHmacSignature, extractHmacHeaders } from '@/lib/security/hmac';
 import { isKeyExpired } from '@/lib/key-rotation';
-import { getCachedResponse, setCachedResponse, generateCacheKey, isCacheable } from '@/lib/cache';
+import { getCachedResponseEntry, setCachedResponse, generateCacheKey, isCacheable } from '@/lib/cache';
 import { transformResponse, type TransformationRule, coerceTransformationRules } from '@/lib/proxy/response-transformer';
 import { z } from 'zod';
 import { selectProvidersForRequest } from '@/lib/proxy/provider-selector';
 import { makeProxyRequestWithStrategy } from '@/lib/proxy/failover';
 import { verifyTOTP } from '@/lib/security/2fa';
 import { readJsonBodyIfPresent } from '@/lib/http/request-body';
+import { isDebugModeEnabled, logDebugInfo } from '@/lib/debug/replay';
 
 export const runtime = 'edge';
 
@@ -24,6 +25,27 @@ const scopesSchema = z.object({
   models: z.array(z.string()).optional(),
   endpoints: z.array(z.string()).optional(),
 }).nullable();
+
+const DEBUG_HEADER_BLACKLIST = new Set([
+  'authorization',
+  'x-api-key',
+  'x-goog-api-key',
+  'x-totp-code',
+  'x-signature',
+  'x-timestamp',
+]);
+
+function getDebugHeaders(headers: Headers): Record<string, string> {
+  const sanitized: Record<string, string> = {};
+
+  headers.forEach((value, key) => {
+    if (!DEBUG_HEADER_BLACKLIST.has(key.toLowerCase())) {
+      sanitized[key] = value;
+    }
+  });
+
+  return sanitized;
+}
 
 /**
  * Catch-all proxy route: /api/gemini/[...path]
@@ -229,6 +251,8 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     }
 
     const selectedProviders = await selectProvidersForRequest(apiKey, requestedModel, ['gemini']);
+    const debugModeEnabled = await isDebugModeEnabled(apiKey.id);
+    const debugRequestHeaders = getDebugHeaders(request.headers);
 
     if (!selectedProviders || selectedProviders.length === 0) {
       return NextResponse.json(
@@ -261,15 +285,76 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
 
     if (bodyRecord && cachePolicyProvider && isCacheable(bodyRecord)) {
       const cacheKey = await generateCacheKey(requestedModel || 'gemini', bodyRecord);
-      const cachedResponse = await getCachedResponse(cacheKey);
+      const cachedEntry = await getCachedResponseEntry(cacheKey);
 
-      if (cachedResponse) {
+      if (cachedEntry) {
         const headers = new Headers();
         headers.set('X-Cache', 'HIT');
         headers.set('Content-Type', 'application/json');
         addRateLimitHeaders(headers, rateLimitResult);
 
-        return NextResponse.json(cachedResponse, {
+        await logProxyRequestAsync({
+          apiKeyId: apiKey.id,
+          providerId: cachePolicyProvider.id,
+          providerFamily: 'gemini',
+          method: request.method,
+          path,
+          model: cachedEntry.model,
+          tokensInput: cachedEntry.tokensInput,
+          tokensOutput: cachedEntry.tokensOutput,
+          latencyMs: Date.now() - startTime,
+          statusCode: 200,
+          requestBody: body,
+          responseBody: cachedEntry.response,
+          cacheHit: true,
+          userAgent: requestMetadata.userAgent,
+          ipAddress: requestMetadata.ipAddress,
+          country: requestMetadata.country,
+        });
+
+        if (debugModeEnabled) {
+          await logDebugInfo({
+            requestId: `debug-${apiKey.id}-${Date.now()}`,
+            timestamp: new Date(),
+            apiKey: {
+              id: apiKey.id,
+              prefix: apiKey.keyPrefix,
+              rateLimits: {
+                requestsPerMinute: apiKey.requestsPerMinute,
+                requestsPerDay: apiKey.requestsPerDay,
+                tokensPerDay: apiKey.tokensPerDay,
+              },
+            },
+            provider: {
+              id: cachePolicyProvider.id,
+              name: cachePolicyProvider.name,
+              endpoint: cachePolicyProvider.endpoint,
+              region: cachePolicyProvider.region || undefined,
+            },
+            request: {
+              method: request.method,
+              headers: debugRequestHeaders,
+              body,
+            },
+            response: {
+              statusCode: 200,
+              headers: Object.fromEntries(headers.entries()),
+              body: cachedEntry.response,
+              latencyMs: Date.now() - startTime,
+            },
+            routing: {
+              strategy: apiKey.providerSelectionStrategy,
+              selectedProvider: cachePolicyProvider.name,
+              alternatives: selectedProviders.map((provider) => provider.name),
+            },
+            caching: {
+              cacheHit: true,
+              cacheKey,
+            },
+          });
+        }
+
+        return NextResponse.json(cachedEntry.response, {
           status: 200,
           headers,
         });
@@ -293,8 +378,10 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         async (usageData) => {
           const model = usageData.model || requestedModel || 'gemini';
           await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
-          await logUsageAsync({
+          await logProxyRequestAsync({
             apiKeyId: apiKey.id,
+            providerId: usedProvider.id,
+            providerFamily: 'gemini',
             method: request.method,
             path,
             model,
@@ -302,10 +389,59 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
             tokensOutput: usageData.tokensOutput,
             latencyMs,
             statusCode: upstreamResponse.status,
+            requestBody: body,
+            responseText: usageData.responseText,
+            streaming: true,
             userAgent: requestMetadata.userAgent,
             ipAddress: requestMetadata.ipAddress,
             country: requestMetadata.country,
           });
+
+          if (debugModeEnabled) {
+            await logDebugInfo({
+              requestId: `debug-${apiKey.id}-${Date.now()}`,
+              timestamp: new Date(),
+              apiKey: {
+                id: apiKey.id,
+                prefix: apiKey.keyPrefix,
+                rateLimits: {
+                  requestsPerMinute: apiKey.requestsPerMinute,
+                  requestsPerDay: apiKey.requestsPerDay,
+                  tokensPerDay: apiKey.tokensPerDay,
+                },
+              },
+              provider: {
+                id: usedProvider.id,
+                name: usedProvider.name,
+                endpoint: usedProvider.endpoint,
+                region: usedProvider.region || undefined,
+              },
+              request: {
+                method: request.method,
+                headers: debugRequestHeaders,
+                body,
+              },
+              response: {
+                statusCode: upstreamResponse.status,
+                headers: Object.fromEntries(cleanResponseHeaders(streamingResponse.headers).entries()),
+                body: {
+                  model,
+                  responseText: usageData.responseText,
+                  tokensInput: usageData.tokensInput,
+                  tokensOutput: usageData.tokensOutput,
+                },
+                latencyMs,
+              },
+              routing: {
+                strategy: apiKey.providerSelectionStrategy,
+                selectedProvider: usedProvider.name,
+                alternatives: selectedProviders.map((provider) => provider.name),
+              },
+              caching: {
+                cacheHit: false,
+              },
+            });
+          }
         }
       );
 
@@ -325,8 +461,10 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     if (usageData) {
       const model = usageData.model || requestedModel || 'gemini';
       await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
-      await logUsageAsync({
+      await logProxyRequestAsync({
         apiKeyId: apiKey.id,
+        providerId: usedProvider.id,
+        providerFamily: 'gemini',
         method: request.method,
         path,
         model,
@@ -334,13 +472,17 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         tokensOutput: usageData.tokensOutput,
         latencyMs,
         statusCode: upstreamResponse.status,
+        requestBody: body,
+        responseBody,
         userAgent: requestMetadata.userAgent,
         ipAddress: requestMetadata.ipAddress,
         country: requestMetadata.country,
       });
     } else {
-      await logUsageAsync({
+      await logProxyRequestAsync({
         apiKeyId: apiKey.id,
+        providerId: usedProvider.id,
+        providerFamily: 'gemini',
         method: request.method,
         path,
         model: requestedModel || 'gemini',
@@ -348,9 +490,52 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         tokensOutput: 0,
         latencyMs,
         statusCode: upstreamResponse.status,
+        requestBody: body,
+        responseBody,
         userAgent: requestMetadata.userAgent,
         ipAddress: requestMetadata.ipAddress,
         country: requestMetadata.country,
+      });
+    }
+
+    if (debugModeEnabled) {
+      await logDebugInfo({
+        requestId: `debug-${apiKey.id}-${Date.now()}`,
+        timestamp: new Date(),
+        apiKey: {
+          id: apiKey.id,
+          prefix: apiKey.keyPrefix,
+          rateLimits: {
+            requestsPerMinute: apiKey.requestsPerMinute,
+            requestsPerDay: apiKey.requestsPerDay,
+            tokensPerDay: apiKey.tokensPerDay,
+          },
+        },
+        provider: {
+          id: usedProvider.id,
+          name: usedProvider.name,
+          endpoint: usedProvider.endpoint,
+          region: usedProvider.region || undefined,
+        },
+        request: {
+          method: request.method,
+          headers: debugRequestHeaders,
+          body,
+        },
+        response: {
+          statusCode: upstreamResponse.status,
+          headers: Object.fromEntries(cleanResponseHeaders(upstreamResponse.headers).entries()),
+          body: responseBody,
+          latencyMs,
+        },
+        routing: {
+          strategy: apiKey.providerSelectionStrategy,
+          selectedProvider: usedProvider.name,
+          alternatives: selectedProviders.map((provider) => provider.name),
+        },
+        caching: {
+          cacheHit: false,
+        },
       });
     }
 

@@ -7,6 +7,7 @@ export interface OpenAIUsageData {
   tokensInput: number;
   tokensOutput: number;
   model: string;
+  responseText?: string;
 }
 
 function applyUsage(
@@ -56,6 +57,7 @@ export async function createOpenAIStreamingResponse(
     tokensInput: 0,
     tokensOutput: 0,
     model: '',
+    responseText: '',
   };
 
   const decoder = new TextDecoder();
@@ -134,10 +136,51 @@ function parseOpenAISSEChunk(chunk: string, usageData: Partial<OpenAIUsageData>)
       if (data.type && (data.type === 'response.completed' || data.type === 'response.done')) {
         applyUsage(usageData, data.response?.usage);
       }
+
+      if (data.type === 'response.output_text.delta' && typeof data.delta === 'string') {
+        usageData.responseText = `${usageData.responseText || ''}${data.delta}`;
+      }
+
+      const deltaText = extractOpenAITextDelta(data);
+      if (deltaText) {
+        usageData.responseText = `${usageData.responseText || ''}${deltaText}`;
+      }
     } catch {
       // Ignore JSON parse errors (non-JSON events)
     }
   }
+}
+
+function extractOpenAITextDelta(data: unknown): string {
+  if (!data || typeof data !== 'object') return '';
+
+  const record = data as {
+    choices?: Array<{ delta?: { content?: unknown } }>;
+  };
+
+  if (Array.isArray(record.choices)) {
+    const parts: string[] = [];
+
+    for (const choice of record.choices) {
+      const content = choice?.delta?.content;
+      if (typeof content === 'string') {
+        parts.push(content);
+      } else if (Array.isArray(content)) {
+        for (const item of content) {
+          const text = typeof item === 'object' && item && 'text' in item
+            ? (item as { text?: unknown }).text
+            : undefined;
+          if (typeof text === 'string') {
+            parts.push(text);
+          }
+        }
+      }
+    }
+
+    return parts.join('');
+  }
+
+  return '';
 }
 
 export function isOpenAIStreamingResponse(response: Response): boolean {

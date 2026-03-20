@@ -4,18 +4,19 @@ import { isValidClaudePath, cleanResponseHeaders } from '@/lib/proxy/claude-offi
 import { createStreamingResponse, isStreamingResponse, parseNonStreamingResponse } from '@/lib/proxy/streaming';
 import { checkRateLimit, addRateLimitHeaders, createRateLimitResponse } from '@/lib/rate-limit';
 import { checkQuota, createQuotaExceededResponse, incrementTokenUsage } from '@/lib/rate-limit/quota-checker';
-import { logUsageAsync, extractRequestMetadata } from '@/lib/analytics/logger';
+import { logProxyRequestAsync, extractRequestMetadata } from '@/lib/analytics/logger';
 import { UnauthorizedError } from '@/types';
 import { validateIpAccess, getClientIp } from '@/lib/security/ip-security';
 import { verifyHmacSignature, extractHmacHeaders } from '@/lib/security/hmac';
 import { isKeyExpired } from '@/lib/key-rotation';
-import { getCachedResponse, setCachedResponse, generateCacheKey, isCacheable } from '@/lib/cache';
+import { getCachedResponseEntry, setCachedResponse, generateCacheKey, isCacheable } from '@/lib/cache';
 import { transformResponse, type TransformationRule, coerceTransformationRules } from '@/lib/proxy/response-transformer';
 import { z } from 'zod';
 import { selectProvidersForRequest } from '@/lib/proxy/provider-selector';
 import { makeProxyRequestWithStrategy } from '@/lib/proxy/failover';
 import { verifyTOTP } from '@/lib/security/2fa';
 import { readJsonBodyIfPresent } from '@/lib/http/request-body';
+import { isDebugModeEnabled, logDebugInfo } from '@/lib/debug/replay';
 
 // Configure edge runtime for global distribution
 export const runtime = 'edge';
@@ -25,6 +26,26 @@ const scopesSchema = z.object({
   models: z.array(z.string()).optional(),
   endpoints: z.array(z.string()).optional(),
 }).nullable();
+
+const DEBUG_HEADER_BLACKLIST = new Set([
+  'authorization',
+  'x-api-key',
+  'x-totp-code',
+  'x-signature',
+  'x-timestamp',
+]);
+
+function getDebugHeaders(headers: Headers): Record<string, string> {
+  const sanitized: Record<string, string> = {};
+
+  headers.forEach((value, key) => {
+    if (!DEBUG_HEADER_BLACKLIST.has(key.toLowerCase())) {
+      sanitized[key] = value;
+    }
+  });
+
+  return sanitized;
+}
 
 
 /**
@@ -258,6 +279,8 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       'bedrock',
       'custom',
     ]);
+    const debugModeEnabled = await isDebugModeEnabled(apiKey.id);
+    const debugRequestHeaders = getDebugHeaders(request.headers);
 
     if (!selectedProviders || selectedProviders.length === 0) {
       return NextResponse.json(
@@ -295,9 +318,9 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     if (bodyRecord && cachePolicyProvider && isCacheable(bodyRecord)) {
       const model = typeof bodyRecord.model === 'string' ? bodyRecord.model : 'claude-3-5-sonnet-20241022';
       const cacheKey = await generateCacheKey(model, bodyRecord);
-      const cachedResponse = await getCachedResponse(cacheKey);
+      const cachedEntry = await getCachedResponseEntry(cacheKey);
 
-      if (cachedResponse) {
+      if (cachedEntry) {
         console.log('Cache hit for request');
 
         // Return cached response with cache headers
@@ -306,7 +329,66 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         headers.set('Content-Type', 'application/json');
         addRateLimitHeaders(headers, rateLimitResult);
 
-        return NextResponse.json(cachedResponse, {
+        await logProxyRequestAsync({
+          apiKeyId: apiKey.id,
+          providerId: cachePolicyProvider.id,
+          providerFamily: 'claude',
+          method: request.method,
+          path,
+          model: cachedEntry.model,
+          tokensInput: cachedEntry.tokensInput,
+          tokensOutput: cachedEntry.tokensOutput,
+          latencyMs: Date.now() - startTime,
+          statusCode: 200,
+          requestBody: body,
+          responseBody: cachedEntry.response,
+          cacheHit: true,
+          ...requestMetadata,
+        });
+
+        if (debugModeEnabled) {
+          await logDebugInfo({
+            requestId: `debug-${apiKey.id}-${Date.now()}`,
+            timestamp: new Date(),
+            apiKey: {
+              id: apiKey.id,
+              prefix: apiKey.keyPrefix,
+              rateLimits: {
+                requestsPerMinute: apiKey.requestsPerMinute,
+                requestsPerDay: apiKey.requestsPerDay,
+                tokensPerDay: apiKey.tokensPerDay,
+              },
+            },
+            provider: {
+              id: cachePolicyProvider.id,
+              name: cachePolicyProvider.name,
+              endpoint: cachePolicyProvider.endpoint,
+              region: cachePolicyProvider.region || undefined,
+            },
+            request: {
+              method: request.method,
+              headers: debugRequestHeaders,
+              body,
+            },
+            response: {
+              statusCode: 200,
+              headers: Object.fromEntries(headers.entries()),
+              body: cachedEntry.response,
+              latencyMs: Date.now() - startTime,
+            },
+            routing: {
+              strategy: apiKey.providerSelectionStrategy,
+              selectedProvider: cachePolicyProvider.name,
+              alternatives: selectedProviders.map((provider) => provider.name),
+            },
+            caching: {
+              cacheHit: true,
+              cacheKey,
+            },
+          });
+        }
+
+        return NextResponse.json(cachedEntry.response, {
           status: 200,
           headers,
         });
@@ -332,21 +414,72 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       const streamResponse = await createStreamingResponse(
         upstreamResponse,
         async (usageData) => {
+          const model = usageData.model || requestedModel || 'claude';
           // Increment token usage for quota tracking (await to ensure it completes)
           await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
 
-          // Log usage to database
-          logUsageAsync({
+          await logProxyRequestAsync({
             apiKeyId: apiKey.id,
+            providerId: usedProvider.id,
+            providerFamily: 'claude',
             method: request.method,
             path,
-            model: usageData.model,
+            model,
             tokensInput: usageData.tokensInput,
             tokensOutput: usageData.tokensOutput,
             latencyMs,
             statusCode: upstreamResponse.status,
+            requestBody: body,
+            responseText: usageData.responseText,
+            streaming: true,
             ...requestMetadata,
           });
+
+          if (debugModeEnabled) {
+            await logDebugInfo({
+              requestId: `debug-${apiKey.id}-${Date.now()}`,
+              timestamp: new Date(),
+              apiKey: {
+                id: apiKey.id,
+                prefix: apiKey.keyPrefix,
+                rateLimits: {
+                  requestsPerMinute: apiKey.requestsPerMinute,
+                  requestsPerDay: apiKey.requestsPerDay,
+                  tokensPerDay: apiKey.tokensPerDay,
+                },
+              },
+              provider: {
+                id: usedProvider.id,
+                name: usedProvider.name,
+                endpoint: usedProvider.endpoint,
+                region: usedProvider.region || undefined,
+              },
+              request: {
+                method: request.method,
+                headers: debugRequestHeaders,
+                body,
+              },
+              response: {
+                statusCode: upstreamResponse.status,
+                headers: Object.fromEntries(cleanResponseHeaders(streamResponse.headers).entries()),
+                body: {
+                  model,
+                  responseText: usageData.responseText,
+                  tokensInput: usageData.tokensInput,
+                  tokensOutput: usageData.tokensOutput,
+                },
+                latencyMs,
+              },
+              routing: {
+                strategy: apiKey.providerSelectionStrategy,
+                selectedProvider: usedProvider.name,
+                alternatives: selectedProviders.map((provider) => provider.name),
+              },
+              caching: {
+                cacheHit: false,
+              },
+            });
+          }
         }
       );
 
@@ -365,37 +498,98 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     const { body: responseBody, usageData } = await parseNonStreamingResponse(upstreamResponse);
 
     if (usageData) {
+      const model = usageData.model || requestedModel || 'claude';
       // Increment token usage for quota tracking (await to ensure it completes)
       await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
 
-      // Log usage to database
-      logUsageAsync({
+      await logProxyRequestAsync({
         apiKeyId: apiKey.id,
+        providerId: usedProvider.id,
+        providerFamily: 'claude',
         method: request.method,
         path,
-        model: usageData.model,
+        model,
         tokensInput: usageData.tokensInput,
         tokensOutput: usageData.tokensOutput,
         latencyMs,
         statusCode: upstreamResponse.status,
+        requestBody: body,
+        responseBody,
         ...requestMetadata,
       });
 
       // Cache successful responses if caching is enabled
       if (bodyRecord && usedProvider.cacheEnabled && isCacheable(bodyRecord) && upstreamResponse.status === 200) {
-        const cacheKey = await generateCacheKey(usageData.model, bodyRecord);
+        const cacheKey = await generateCacheKey(model, bodyRecord);
         const ttl = usedProvider.cacheTtlSeconds || 300;
 
         // Store in cache (don't await - fire and forget)
         setCachedResponse(
           cacheKey,
           responseBody,
-          usageData.model,
+          model,
           usageData.tokensInput,
           usageData.tokensOutput,
           ttl
         ).catch((err) => console.error('Cache storage error:', err));
       }
+    } else {
+      await logProxyRequestAsync({
+        apiKeyId: apiKey.id,
+        providerId: usedProvider.id,
+        providerFamily: 'claude',
+        method: request.method,
+        path,
+        model: requestedModel || 'claude',
+        tokensInput: 0,
+        tokensOutput: 0,
+        latencyMs,
+        statusCode: upstreamResponse.status,
+        requestBody: body,
+        responseBody,
+        ...requestMetadata,
+      });
+    }
+
+    if (debugModeEnabled) {
+      await logDebugInfo({
+        requestId: `debug-${apiKey.id}-${Date.now()}`,
+        timestamp: new Date(),
+        apiKey: {
+          id: apiKey.id,
+          prefix: apiKey.keyPrefix,
+          rateLimits: {
+            requestsPerMinute: apiKey.requestsPerMinute,
+            requestsPerDay: apiKey.requestsPerDay,
+            tokensPerDay: apiKey.tokensPerDay,
+          },
+        },
+        provider: {
+          id: usedProvider.id,
+          name: usedProvider.name,
+          endpoint: usedProvider.endpoint,
+          region: usedProvider.region || undefined,
+        },
+        request: {
+          method: request.method,
+          headers: debugRequestHeaders,
+          body,
+        },
+        response: {
+          statusCode: upstreamResponse.status,
+          headers: Object.fromEntries(cleanResponseHeaders(upstreamResponse.headers).entries()),
+          body: responseBody,
+          latencyMs,
+        },
+        routing: {
+          strategy: apiKey.providerSelectionStrategy,
+          selectedProvider: usedProvider.name,
+          alternatives: selectedProviders.map((provider) => provider.name),
+        },
+        caching: {
+          cacheHit: false,
+        },
+      });
     }
 
     // Clean headers and add rate limit info

@@ -7,6 +7,7 @@ export interface GeminiUsageData {
   tokensInput: number;
   tokensOutput: number;
   model: string;
+  responseText?: string;
 }
 
 function applyUsage(
@@ -56,6 +57,7 @@ export async function createGeminiStreamingResponse(
     tokensInput: 0,
     tokensOutput: 0,
     model: '',
+    responseText: '',
   };
 
   const decoder = new TextDecoder();
@@ -135,6 +137,24 @@ function parseGeminiSSEChunk(chunk: string, usageData: Partial<GeminiUsageData>)
       }
 
       applyUsage(usageData, data.usageMetadata);
+
+      if (Array.isArray((data as { candidates?: unknown[] }).candidates)) {
+        const responseText = ((data as {
+          candidates?: Array<{
+            content?: {
+              parts?: Array<{ text?: string }>;
+            };
+          }>;
+        }).candidates || [])
+          .flatMap((candidate) => candidate.content?.parts || [])
+          .map((part) => part.text)
+          .filter((text): text is string => typeof text === 'string')
+          .join('');
+
+        if (responseText) {
+          usageData.responseText = `${usageData.responseText || ''}${responseText}`;
+        }
+      }
     } catch {
       // Ignore JSON parse errors (non-JSON events)
     }

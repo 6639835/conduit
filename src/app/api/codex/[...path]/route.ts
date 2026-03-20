@@ -5,18 +5,19 @@ import { cleanResponseHeaders } from '@/lib/proxy/claude-official';
 import { createOpenAIStreamingResponse, isOpenAIStreamingResponse, parseOpenAINonStreamingResponse } from '@/lib/proxy/openai-streaming';
 import { checkRateLimit, addRateLimitHeaders, createRateLimitResponse } from '@/lib/rate-limit';
 import { checkQuota, createQuotaExceededResponse, incrementTokenUsage } from '@/lib/rate-limit/quota-checker';
-import { logUsageAsync, extractRequestMetadata } from '@/lib/analytics/logger';
+import { logProxyRequestAsync, extractRequestMetadata } from '@/lib/analytics/logger';
 import { UnauthorizedError } from '@/types';
 import { validateIpAccess, getClientIp } from '@/lib/security/ip-security';
 import { verifyHmacSignature, extractHmacHeaders } from '@/lib/security/hmac';
 import { isKeyExpired } from '@/lib/key-rotation';
-import { getCachedResponse, setCachedResponse, generateCacheKey, isCacheable } from '@/lib/cache';
+import { getCachedResponseEntry, setCachedResponse, generateCacheKey, isCacheable } from '@/lib/cache';
 import { transformResponse, type TransformationRule, coerceTransformationRules } from '@/lib/proxy/response-transformer';
 import { z } from 'zod';
 import { selectProvidersForRequest } from '@/lib/proxy/provider-selector';
 import { makeProxyRequestWithStrategy } from '@/lib/proxy/failover';
 import { verifyTOTP } from '@/lib/security/2fa';
 import { readJsonBodyIfPresent } from '@/lib/http/request-body';
+import { isDebugModeEnabled, logDebugInfo } from '@/lib/debug/replay';
 
 export const runtime = 'edge';
 
@@ -24,6 +25,26 @@ const scopesSchema = z.object({
   models: z.array(z.string()).optional(),
   endpoints: z.array(z.string()).optional(),
 }).nullable();
+
+const DEBUG_HEADER_BLACKLIST = new Set([
+  'authorization',
+  'x-api-key',
+  'x-totp-code',
+  'x-signature',
+  'x-timestamp',
+]);
+
+function getDebugHeaders(headers: Headers): Record<string, string> {
+  const sanitized: Record<string, string> = {};
+
+  headers.forEach((value, key) => {
+    if (!DEBUG_HEADER_BLACKLIST.has(key.toLowerCase())) {
+      sanitized[key] = value;
+    }
+  });
+
+  return sanitized;
+}
 
 /**
  * Catch-all proxy route: /api/codex/[...path]
@@ -226,6 +247,8 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
 
     const requestedModel = body && typeof body === 'object' && 'model' in body ? (body as { model?: string }).model : undefined;
     const selectedProviders = await selectProvidersForRequest(apiKey, requestedModel, ['codex', 'openai']);
+    const debugModeEnabled = await isDebugModeEnabled(apiKey.id);
+    const debugRequestHeaders = getDebugHeaders(request.headers);
 
     if (!selectedProviders || selectedProviders.length === 0) {
       return NextResponse.json(
@@ -258,15 +281,74 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
 
     if (bodyRecord && cachePolicyProvider && isCacheable(bodyRecord)) {
       const cacheKey = await generateCacheKey((bodyRecord as { model?: string }).model || 'codex', bodyRecord);
-      const cachedResponse = await getCachedResponse(cacheKey);
+      const cachedEntry = await getCachedResponseEntry(cacheKey);
 
-      if (cachedResponse) {
+      if (cachedEntry) {
         const headers = new Headers();
         headers.set('X-Cache', 'HIT');
         headers.set('Content-Type', 'application/json');
         addRateLimitHeaders(headers, rateLimitResult);
 
-        return NextResponse.json(cachedResponse, {
+        await logProxyRequestAsync({
+          apiKeyId: apiKey.id,
+          providerId: cachePolicyProvider.id,
+          providerFamily: 'openai',
+          method: request.method,
+          path,
+          model: cachedEntry.model,
+          tokensInput: cachedEntry.tokensInput,
+          tokensOutput: cachedEntry.tokensOutput,
+          latencyMs: Date.now() - startTime,
+          statusCode: 200,
+          requestBody: body,
+          responseBody: cachedEntry.response,
+          cacheHit: true,
+          ...requestMetadata,
+        });
+
+        if (debugModeEnabled) {
+          await logDebugInfo({
+            requestId: `debug-${apiKey.id}-${Date.now()}`,
+            timestamp: new Date(),
+            apiKey: {
+              id: apiKey.id,
+              prefix: apiKey.keyPrefix,
+              rateLimits: {
+                requestsPerMinute: apiKey.requestsPerMinute,
+                requestsPerDay: apiKey.requestsPerDay,
+                tokensPerDay: apiKey.tokensPerDay,
+              },
+            },
+            provider: {
+              id: cachePolicyProvider.id,
+              name: cachePolicyProvider.name,
+              endpoint: cachePolicyProvider.endpoint,
+              region: cachePolicyProvider.region || undefined,
+            },
+            request: {
+              method: request.method,
+              headers: debugRequestHeaders,
+              body,
+            },
+            response: {
+              statusCode: 200,
+              headers: Object.fromEntries(headers.entries()),
+              body: cachedEntry.response,
+              latencyMs: Date.now() - startTime,
+            },
+            routing: {
+              strategy: apiKey.providerSelectionStrategy,
+              selectedProvider: cachePolicyProvider.name,
+              alternatives: selectedProviders.map((provider) => provider.name),
+            },
+            caching: {
+              cacheHit: true,
+              cacheKey,
+            },
+          });
+        }
+
+        return NextResponse.json(cachedEntry.response, {
           status: 200,
           headers,
         });
@@ -288,19 +370,71 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       const streamResponse = await createOpenAIStreamingResponse(
         upstreamResponse,
         async (usageData) => {
+          const model = usageData.model || requestedModel || 'openai';
           await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
 
-          logUsageAsync({
+          await logProxyRequestAsync({
             apiKeyId: apiKey.id,
+            providerId: usedProvider.id,
+            providerFamily: 'openai',
             method: request.method,
             path,
-            model: usageData.model,
+            model,
             tokensInput: usageData.tokensInput,
             tokensOutput: usageData.tokensOutput,
             latencyMs,
             statusCode: upstreamResponse.status,
+            requestBody: body,
+            responseText: usageData.responseText,
+            streaming: true,
             ...requestMetadata,
           });
+
+          if (debugModeEnabled) {
+            await logDebugInfo({
+              requestId: `debug-${apiKey.id}-${Date.now()}`,
+              timestamp: new Date(),
+              apiKey: {
+                id: apiKey.id,
+                prefix: apiKey.keyPrefix,
+                rateLimits: {
+                  requestsPerMinute: apiKey.requestsPerMinute,
+                  requestsPerDay: apiKey.requestsPerDay,
+                  tokensPerDay: apiKey.tokensPerDay,
+                },
+              },
+              provider: {
+                id: usedProvider.id,
+                name: usedProvider.name,
+                endpoint: usedProvider.endpoint,
+                region: usedProvider.region || undefined,
+              },
+              request: {
+                method: request.method,
+                headers: debugRequestHeaders,
+                body,
+              },
+              response: {
+                statusCode: upstreamResponse.status,
+                headers: Object.fromEntries(cleanResponseHeaders(streamResponse.headers).entries()),
+                body: {
+                  model,
+                  responseText: usageData.responseText,
+                  tokensInput: usageData.tokensInput,
+                  tokensOutput: usageData.tokensOutput,
+                },
+                latencyMs,
+              },
+              routing: {
+                strategy: apiKey.providerSelectionStrategy,
+                selectedProvider: usedProvider.name,
+                alternatives: selectedProviders.map((provider) => provider.name),
+              },
+              caching: {
+                cacheHit: false,
+              },
+            });
+          }
         }
       );
 
@@ -317,17 +451,22 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     const { body: responseBody, usageData } = await parseOpenAINonStreamingResponse(upstreamResponse);
 
     if (usageData) {
+      const model = usageData.model || requestedModel || 'openai';
       await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
 
-      logUsageAsync({
+      await logProxyRequestAsync({
         apiKeyId: apiKey.id,
+        providerId: usedProvider.id,
+        providerFamily: 'openai',
         method: request.method,
         path,
-        model: usageData.model,
+        model,
         tokensInput: usageData.tokensInput,
         tokensOutput: usageData.tokensOutput,
         latencyMs,
         statusCode: upstreamResponse.status,
+        requestBody: body,
+        responseBody,
         ...requestMetadata,
       });
 
@@ -337,18 +476,75 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         isCacheable(bodyRecord) &&
         upstreamResponse.status === 200
       ) {
-        const cacheKey = await generateCacheKey(usageData.model, bodyRecord);
+        const cacheKey = await generateCacheKey(model, bodyRecord);
         const ttl = usedProvider.cacheTtlSeconds || 300;
 
         setCachedResponse(
           cacheKey,
           responseBody,
-          usageData.model,
+          model,
           usageData.tokensInput,
           usageData.tokensOutput,
           ttl
         ).catch((err) => console.error('Cache storage error:', err));
       }
+    } else {
+      await logProxyRequestAsync({
+        apiKeyId: apiKey.id,
+        providerId: usedProvider.id,
+        providerFamily: 'openai',
+        method: request.method,
+        path,
+        model: requestedModel || 'openai',
+        tokensInput: 0,
+        tokensOutput: 0,
+        latencyMs,
+        statusCode: upstreamResponse.status,
+        requestBody: body,
+        responseBody,
+        ...requestMetadata,
+      });
+    }
+
+    if (debugModeEnabled) {
+      await logDebugInfo({
+        requestId: `debug-${apiKey.id}-${Date.now()}`,
+        timestamp: new Date(),
+        apiKey: {
+          id: apiKey.id,
+          prefix: apiKey.keyPrefix,
+          rateLimits: {
+            requestsPerMinute: apiKey.requestsPerMinute,
+            requestsPerDay: apiKey.requestsPerDay,
+            tokensPerDay: apiKey.tokensPerDay,
+          },
+        },
+        provider: {
+          id: usedProvider.id,
+          name: usedProvider.name,
+          endpoint: usedProvider.endpoint,
+          region: usedProvider.region || undefined,
+        },
+        request: {
+          method: request.method,
+          headers: debugRequestHeaders,
+          body,
+        },
+        response: {
+          statusCode: upstreamResponse.status,
+          headers: Object.fromEntries(cleanResponseHeaders(upstreamResponse.headers).entries()),
+          body: responseBody,
+          latencyMs,
+        },
+        routing: {
+          strategy: apiKey.providerSelectionStrategy,
+          selectedProvider: usedProvider.name,
+          alternatives: selectedProviders.map((provider) => provider.name),
+        },
+        caching: {
+          cacheHit: false,
+        },
+      });
     }
 
     const headers = cleanResponseHeaders(upstreamResponse.headers);

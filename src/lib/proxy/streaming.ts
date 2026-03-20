@@ -7,6 +7,7 @@ export interface StreamUsageData {
   tokensInput: number;
   tokensOutput: number;
   model: string;
+  responseText?: string;
 }
 
 /**
@@ -26,6 +27,7 @@ export async function createStreamingResponse(
     tokensInput: 0,
     tokensOutput: 0,
     model: '',
+    responseText: '',
   };
 
   const decoder = new TextDecoder();
@@ -121,6 +123,10 @@ function parseSSEChunk(chunk: string, usageData: Partial<StreamUsageData>) {
         }
         if (data.delta?.usage) {
           updateUsage(data.delta.usage);
+        }
+
+        if (data.type === 'content_block_delta' && typeof data.delta?.text === 'string') {
+          usageData.responseText = `${usageData.responseText || ''}${data.delta.text}`;
         }
       } catch {
         // Ignore JSON parse errors (non-JSON events)
