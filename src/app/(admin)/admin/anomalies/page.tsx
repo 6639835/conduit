@@ -32,8 +32,13 @@ interface Anomaly {
   expectedValue: number;
   deviation: number;
   threshold: number;
-  timestamp: Date;
+  timestamp: string;
   apiKeyId?: string;
+  apiKey?: {
+    id: string;
+    keyPrefix: string;
+    name: string | null;
+  };
   message: string;
   details: {
     zScore?: number;
@@ -55,66 +60,29 @@ export default function AnomaliesPage() {
         description: 'This may take a few moments',
       });
 
-      // Simulate API call for demo
-      // In production, this would call the cron endpoint or a dedicated API
-      setTimeout(() => {
-        // Mock data for demonstration
-        const mockAnomalies: Anomaly[] = [
-          {
-            type: 'usage_spike',
-            severity: 'high',
-            metric: 'requests',
-            currentValue: 15420,
-            expectedValue: 8250,
-            deviation: 3.8,
-            threshold: 3,
-            timestamp: new Date(),
-            message: 'Spike detected: 15420 vs expected 8250',
-            details: {
-              zScore: 3.8,
-              percentageChange: 86.9,
-            },
-          },
-          {
-            type: 'cost_spike',
-            severity: 'critical',
-            metric: 'cost',
-            currentValue: 245.50,
-            expectedValue: 120.30,
-            deviation: 4.2,
-            threshold: 3,
-            timestamp: new Date(Date.now() - 3600000),
-            message: 'Cost spike: $245.50 vs expected $120.30',
-            details: {
-              percentageChange: 104.1,
-            },
-          },
-          {
-            type: 'error_rate_spike',
-            severity: 'medium',
-            metric: 'error_rate',
-            currentValue: 8.5,
-            expectedValue: 2.1,
-            deviation: 2.9,
-            threshold: 2.5,
-            timestamp: new Date(Date.now() - 7200000),
-            message: 'Error rate spike: 8.50% vs expected 2.10%',
-            details: {
-              percentageChange: 304.8,
-            },
-          },
-        ];
+      const response = await fetch(`/api/admin/anomalies?lookbackDays=${lookbackDays}`, {
+        cache: 'no-store',
+      });
+      const data = await response.json();
 
-        setAnomalies(mockAnomalies);
-        toast.success('Anomaly detection complete', {
-          description: `Found ${mockAnomalies.length} anomalies`,
-        });
-        setLoading(false);
-      }, 2000);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to detect anomalies');
+      }
+
+      const detectedAnomalies = (data.data?.anomalies || []) as Anomaly[];
+      setAnomalies(detectedAnomalies);
+
+      toast.success('Anomaly detection complete', {
+        description:
+          detectedAnomalies.length > 0
+            ? `Found ${detectedAnomalies.length} anomalies`
+            : 'No anomalies detected in the selected window',
+      });
     } catch {
       toast.error('Failed to detect anomalies', {
         description: 'An unexpected error occurred',
       });
+    } finally {
       setLoading(false);
     }
   };
@@ -167,7 +135,7 @@ export default function AnomaliesPage() {
     return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
-  const anomaliesBySecurityvity = {
+  const anomaliesBySeverity = {
     critical: anomalies.filter(a => a.severity === 'critical').length,
     high: anomalies.filter(a => a.severity === 'high').length,
     medium: anomalies.filter(a => a.severity === 'medium').length,
@@ -192,7 +160,7 @@ export default function AnomaliesPage() {
           <div className="flex items-center gap-3">
             <Select
               value={lookbackDays.toString()}
-              onChange={(e) => setLookbackDays(parseInt(e.target.value))}
+              onValueChange={(value) => setLookbackDays(parseInt(value, 10))}
             >
               <option value="3">Last 3 days</option>
               <option value="7">Last 7 days</option>
@@ -224,7 +192,7 @@ export default function AnomaliesPage() {
                   <div>
                     <p className="text-sm text-muted-foreground">Critical</p>
                     <p className="text-2xl font-bold text-red-600">
-                      {anomaliesBySecurityvity.critical}
+                      {anomaliesBySeverity.critical}
                     </p>
                   </div>
                   <div className="h-12 w-12 rounded-full bg-red-500/10 flex items-center justify-center">
@@ -240,7 +208,7 @@ export default function AnomaliesPage() {
                   <div>
                     <p className="text-sm text-muted-foreground">High</p>
                     <p className="text-2xl font-bold text-orange-600">
-                      {anomaliesBySecurityvity.high}
+                      {anomaliesBySeverity.high}
                     </p>
                   </div>
                   <div className="h-12 w-12 rounded-full bg-orange-500/10 flex items-center justify-center">
@@ -256,7 +224,7 @@ export default function AnomaliesPage() {
                   <div>
                     <p className="text-sm text-muted-foreground">Medium</p>
                     <p className="text-2xl font-bold text-yellow-600">
-                      {anomaliesBySecurityvity.medium}
+                      {anomaliesBySeverity.medium}
                     </p>
                   </div>
                   <div className="h-12 w-12 rounded-full bg-yellow-500/10 flex items-center justify-center">
@@ -272,7 +240,7 @@ export default function AnomaliesPage() {
                   <div>
                     <p className="text-sm text-muted-foreground">Low</p>
                     <p className="text-2xl font-bold text-blue-600">
-                      {anomaliesBySecurityvity.low}
+                      {anomaliesBySeverity.low}
                     </p>
                   </div>
                   <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center">
@@ -347,6 +315,11 @@ export default function AnomaliesPage() {
                             <p className="text-xs text-muted-foreground">
                               Detected: {new Date(anomaly.timestamp).toLocaleString()}
                             </p>
+                            {anomaly.apiKey && (
+                              <p className="text-xs text-muted-foreground">
+                                API key: {anomaly.apiKey.name || anomaly.apiKey.keyPrefix}
+                              </p>
+                            )}
                           </div>
                         </div>
 

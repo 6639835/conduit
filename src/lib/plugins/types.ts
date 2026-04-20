@@ -79,7 +79,7 @@ export type ContextHookName = keyof PluginHooks & {
 }[keyof PluginHooks];
 
 export type ContextHookContext<T extends ContextHookName> =
-  NonNullable<PluginHooks[T]> extends (context: infer C) => Promise<any> ? C : never;
+  NonNullable<PluginHooks[T]> extends (context: infer C) => Promise<unknown> ? C : never;
 
 export interface RequestContext {
   requestId: string;

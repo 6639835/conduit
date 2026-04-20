@@ -165,15 +165,25 @@ vercel
 
 Set up Neon PostgreSQL and Vercel KV in Vercel Dashboard > Storage.
 
+## Production Checklist
+
+- Set `NEXTAUTH_SECRET`, `API_KEY_ENCRYPTION_KEY`, `CRON_SECRET`, and `METRICS_SECRET` to strong random values
+- Set `NEXTAUTH_URL` and optionally `NEXT_PUBLIC_APP_URL` to your canonical HTTPS origin
+- Provision Neon PostgreSQL and Vercel KV before enabling traffic
+- Run `npm run build` in CI for every change
+- Configure the cron jobs in [vercel.json](/Users/lujuncheng/CursorProjects/conduit/vercel.json)
+- Keep `.env.local` local-only and use `.env.example` as the shareable template
+- Wire a real provider-backed cache warming implementation before enabling that admin workflow
+
 ## Security Notes
 
 ⚠️ **For Production:**
 
-1. Add authentication to admin routes (NextAuth.js)
+1. Admin routes are protected with NextAuth and proxy-level gating; restrict admin user creation operationally
 2. Rotate encryption keys regularly
 3. Never log full API keys
 4. Enable monitoring and alerts
-5. Use SSL everywhere
+5. Use HTTPS everywhere
 
 ## License
 

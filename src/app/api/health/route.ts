@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { kv } from '@vercel/kv';
 import { sql } from 'drizzle-orm';
+import { formatHealthCheckError } from '@/lib/env';
 
 export const runtime = 'edge';
 
@@ -24,15 +25,17 @@ export async function GET() {
   } catch (error) {
     checks.database = {
       status: 'unhealthy',
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: formatHealthCheckError(error),
     };
   }
 
   // Check KV (Redis) connection
   try {
     const kvStart = Date.now();
-    await kv.set('health_check', Date.now(), { ex: 10 });
-    await kv.get('health_check');
+    const healthCheckKey = `health_check:${crypto.randomUUID()}`;
+    await kv.set(healthCheckKey, Date.now(), { ex: 10 });
+    await kv.get(healthCheckKey);
+    await kv.del(healthCheckKey);
     checks.redis = {
       status: 'healthy',
       latency: Date.now() - kvStart,
@@ -40,7 +43,7 @@ export async function GET() {
   } catch (error) {
     checks.redis = {
       status: 'unhealthy',
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: formatHealthCheckError(error),
     };
   }
 
@@ -55,6 +58,11 @@ export async function GET() {
       responseTime: Date.now() - startTime,
       checks,
     },
-    { status: overallStatus === 'healthy' ? 200 : 503 }
+    {
+      status: overallStatus === 'healthy' ? 200 : 503,
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    }
   );
 }

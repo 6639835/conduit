@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
+import { getRequiredEnv } from '@/lib/env';
 
 export async function proxy(request: NextRequest) {
   const token = await getToken({
     req: request,
-    secret: process.env.NEXTAUTH_SECRET,
+    secret: getRequiredEnv('NEXTAUTH_SECRET'),
   });
 
   const isLoggedIn = !!token;
@@ -28,4 +29,3 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: ['/admin/:path*', '/login'],
 };
-

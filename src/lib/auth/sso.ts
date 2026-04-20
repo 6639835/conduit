@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { getAppBaseUrl } from '@/lib/env';
 
 // ============================================================================
 // SSO Provider Types
@@ -344,14 +345,12 @@ export function requiresEnterprise(provider: SSOProvider): boolean {
  * Generate SP metadata URL for SAML
  */
 export function getSPMetadataUrl(organizationSlug: string): string {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  return `${baseUrl}/api/auth/saml/${organizationSlug}/metadata`;
+  return `${getAppBaseUrl()}/api/auth/saml/${organizationSlug}/metadata`;
 }
 
 /**
  * Generate ACS URL for SAML
  */
 export function getACSUrl(organizationSlug: string): string {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  return `${baseUrl}/api/auth/saml/${organizationSlug}/acs`;
+  return `${getAppBaseUrl()}/api/auth/saml/${organizationSlug}/acs`;
 }

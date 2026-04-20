@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/auth/middleware';
 import { Permission } from '@/lib/auth/rbac';
-import { getCacheAnalytics, clearSemanticCache, warmCache, type CacheWarmingEntry } from '@/lib/cache/semantic';
+import { getCacheAnalytics, clearSemanticCache } from '@/lib/cache/semantic';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -134,8 +134,9 @@ export async function DELETE(request: NextRequest) {
 }
 
 /**
- * POST /api/admin/cache/warm
- * Warm cache with predefined queries
+ * POST /api/admin/cache
+ * Cache warming is intentionally disabled until a real provider-backed fetch
+ * implementation is wired in. Returning success with mock data would be unsafe.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -156,7 +157,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { apiKeyId, entries } = validation.data;
+    const { apiKeyId } = validation.data;
 
     // Verify API key exists
     const [key] = await db
@@ -175,32 +176,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Mock fetch function for cache warming
-    // In production, this would make actual API calls
-    const mockFetch = async (entry: CacheWarmingEntry) => {
-      return {
-        id: 'mock-response',
-        content: 'This is a mock response for cache warming',
-        model: entry.metadata.model,
-        usage: {
-          promptTokens: 10,
-          completionTokens: 20,
-          totalTokens: 30,
-        },
-      };
-    };
-
-    const result = await warmCache(apiKeyId, entries, mockFetch);
-
     return NextResponse.json({
-      success: true,
-      message: 'Cache warming complete',
-      data: {
-        warmed: result.warmed,
-        failed: result.failed,
-        total: entries.length,
-      },
-    });
+      success: false,
+      error: 'Cache warming is not enabled in this build',
+      details: `API key ${apiKeyId} was validated, but cache warming requires a real provider-backed fetch implementation before it can be used in production.`,
+    }, { status: 501 });
   } catch (error) {
     console.error('[Cache] Error warming cache:', error);
     return NextResponse.json(
