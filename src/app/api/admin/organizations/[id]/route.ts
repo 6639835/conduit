@@ -3,7 +3,8 @@ import { db } from '@/lib/db';
 import { organizations } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { logAudit } from '@/lib/audit';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission, requireOrganizationAccess } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
 
 export const runtime = 'edge';
 
@@ -14,8 +15,10 @@ export async function GET(
 ) {
   const { id } = await context.params;
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.ORG_READ);
+    if (!authResult.authorized) return authResult.response;
+    const orgAccessResult = await requireOrganizationAccess(id);
+    if (!orgAccessResult.authorized) return orgAccessResult.response;
 
     const [org] = await db
       .select()
@@ -44,9 +47,10 @@ export async function PATCH(
 ) {
   const { id } = await context.params;
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.ORG_UPDATE);
+    if (!authResult.authorized) return authResult.response;
+    const orgAccessResult = await requireOrganizationAccess(id);
+    if (!orgAccessResult.authorized) return orgAccessResult.response;
 
     const body = await request.json();
     const { name, slug, plan, maxApiKeys, maxUsers, isActive } = body;
@@ -75,7 +79,7 @@ export async function PATCH(
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email ?? undefined,
+      adminId: authResult.adminContext.id,
       resourceType: 'organization',
       resourceId: org.id,
       action: 'update',
@@ -109,9 +113,8 @@ export async function DELETE(
 ) {
   const { id } = await context.params;
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.ORG_DELETE);
+    if (!authResult.authorized) return authResult.response;
 
     const [org] = await db
       .delete(organizations)
@@ -124,7 +127,7 @@ export async function DELETE(
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email ?? undefined,
+      adminId: authResult.adminContext.id,
       resourceType: 'organization',
       resourceId: org.id,
       action: 'delete',

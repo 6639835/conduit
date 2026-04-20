@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { keyTemplates, providers } from '@/lib/db/schema';
-import { desc, eq, sql } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission, Role } from '@/lib/auth/rbac';
 import { z } from 'zod';
 
 const createTemplateSchema = z.object({
@@ -55,13 +56,12 @@ interface TemplateResponse {
 
 /**
  * POST /api/admin/key-templates - Create a new API key template
- * Requires authentication
+ * Requires API_KEY_CREATE permission
  */
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.API_KEY_CREATE);
+    if (!authResult.authorized) return authResult.response;
 
     const body = await request.json();
     const validationResult = createTemplateSchema.safeParse(body);
@@ -77,6 +77,32 @@ export async function POST(request: NextRequest) {
     }
 
     const data = validationResult.data;
+    const organizationId =
+      authResult.adminContext.role === Role.SUPER_ADMIN
+        ? data.organizationId || null
+        : authResult.adminContext.organizationId;
+
+    if (authResult.adminContext.role !== Role.SUPER_ADMIN) {
+      if (!authResult.adminContext.organizationId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Admin is not assigned to an organization',
+          } as TemplateResponse,
+          { status: 403 }
+        );
+      }
+
+      if (data.organizationId && data.organizationId !== authResult.adminContext.organizationId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'You do not have access to this organization',
+          } as TemplateResponse,
+          { status: 403 }
+        );
+      }
+    }
 
     // Validate provider if specified
     if (data.providerId) {
@@ -126,8 +152,8 @@ export async function POST(request: NextRequest) {
         webhookUrl: data.webhookUrl || null,
         slackWebhook: data.slackWebhook || null,
         discordWebhook: data.discordWebhook || null,
-        organizationId: data.organizationId || null,
-        createdBy: session.user.id,
+        organizationId,
+        createdBy: authResult.adminContext.id,
       })
       .returning();
 
@@ -152,18 +178,27 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/admin/key-templates - List all key templates
- * Requires authentication
+ * Requires API_KEY_READ permission
  * Query params: page (default 1), limit (default 50, max 100)
  */
 export async function GET(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.API_KEY_READ);
+    if (!authResult.authorized) return authResult.response;
 
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
     const offset = (page - 1) * limit;
+    const conditions = [eq(keyTemplates.isActive, true)];
+    if (authResult.adminContext.role !== Role.SUPER_ADMIN) {
+      conditions.push(
+        authResult.adminContext.organizationId
+          ? eq(keyTemplates.organizationId, authResult.adminContext.organizationId)
+          : sql`false`
+      );
+    }
+    const whereClause = and(...conditions);
 
     const templates = await db
       .select({
@@ -196,7 +231,7 @@ export async function GET(request: NextRequest) {
       })
       .from(keyTemplates)
       .leftJoin(providers, eq(keyTemplates.providerId, providers.id))
-      .where(eq(keyTemplates.isActive, true))
+      .where(whereClause)
       .orderBy(desc(keyTemplates.createdAt))
       .limit(limit)
       .offset(offset);
@@ -204,7 +239,7 @@ export async function GET(request: NextRequest) {
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(keyTemplates)
-      .where(eq(keyTemplates.isActive, true));
+      .where(whereClause);
 
     const totalPages = Math.ceil(count / limit);
 

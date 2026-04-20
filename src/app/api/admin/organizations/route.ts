@@ -2,17 +2,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { organizations } from '@/lib/db/schema';
 import { logAudit } from '@/lib/audit';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission, Role } from '@/lib/auth/rbac';
+import { eq, sql } from 'drizzle-orm';
 
 export const runtime = 'edge';
 
 // GET /api/admin/organizations - List all organizations
 export async function GET() {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.ORG_READ);
+    if (!authResult.authorized) return authResult.response;
+    const whereClause = authResult.adminContext.role === Role.SUPER_ADMIN
+      ? undefined
+      : authResult.adminContext.organizationId
+        ? eq(organizations.id, authResult.adminContext.organizationId)
+        : sql`false`;
 
-    const orgs = await db.select().from(organizations).orderBy(organizations.createdAt);
+    const orgs = await db
+      .select()
+      .from(organizations)
+      .where(whereClause)
+      .orderBy(organizations.createdAt);
 
     return NextResponse.json({ organizations: orgs });
   } catch (error) {
@@ -27,9 +38,8 @@ export async function GET() {
 // POST /api/admin/organizations - Create a new organization
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.ORG_CREATE);
+    if (!authResult.authorized) return authResult.response;
 
     const body = await request.json();
     const { name, slug, plan, maxApiKeys, maxUsers } = body;
@@ -54,7 +64,7 @@ export async function POST(request: NextRequest) {
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email ?? undefined,
+      adminId: authResult.adminContext.id,
       resourceType: 'organization',
       resourceId: org.id,
       action: 'create',

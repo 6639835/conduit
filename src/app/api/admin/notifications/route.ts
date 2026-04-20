@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { notifications } from '@/lib/db/schema';
 import { desc, eq, and, sql } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { checkAuth, requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
 
 /**
  * GET /api/admin/notifications - Get notifications for current admin
@@ -62,6 +63,9 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const authResult = await requirePermission(Permission.SYSTEM_MANAGE);
+    if (!authResult.authorized) return authResult.response;
+
     const body = await request.json();
     const { adminId, type, title, message, actionUrl, actionLabel, metadata } = body;
 

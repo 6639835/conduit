@@ -17,6 +17,7 @@ import { makeProxyRequestWithStrategy } from '@/lib/proxy/failover';
 import { verifyTOTP } from '@/lib/security/2fa';
 import { readJsonBodyIfPresent } from '@/lib/http/request-body';
 import { isDebugModeEnabled, logDebugInfo } from '@/lib/debug/replay';
+import { createProxyOptionsResponse } from '@/lib/proxy/cors';
 
 // Configure edge runtime for global distribution
 export const runtime = 'edge';
@@ -295,7 +296,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     }
 
     // Cache policy: allow cache reads if any selected provider enables caching.
-    const cachePolicyProvider = selectedProviders.find((p) => p.cacheEnabled);
+    const cachePolicyProviders = selectedProviders.filter((p) => p.cacheEnabled);
 
     // Check rate limits
     const rateLimitResult = await checkRateLimit(apiKey);
@@ -315,12 +316,27 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         : null;
 
     // Check cache for non-streaming requests
-    if (bodyRecord && cachePolicyProvider && isCacheable(bodyRecord)) {
+    if (bodyRecord && cachePolicyProviders.length > 0 && isCacheable(bodyRecord)) {
       const model = typeof bodyRecord.model === 'string' ? bodyRecord.model : 'claude-3-5-sonnet-20241022';
-      const cacheKey = await generateCacheKey(model, bodyRecord);
-      const cachedEntry = await getCachedResponseEntry(cacheKey);
+      let cachedEntry = null;
+      let cachedProvider = null;
+      let cacheKey = '';
 
-      if (cachedEntry) {
+      for (const provider of cachePolicyProviders) {
+        const providerCacheKey = await generateCacheKey(model, bodyRecord, {
+          apiKeyId: apiKey.id,
+          providerId: provider.id,
+        });
+        const providerCachedEntry = await getCachedResponseEntry(providerCacheKey);
+        if (providerCachedEntry) {
+          cachedEntry = providerCachedEntry;
+          cachedProvider = provider;
+          cacheKey = providerCacheKey;
+          break;
+        }
+      }
+
+      if (cachedEntry && cachedProvider) {
         console.log('Cache hit for request');
 
         // Return cached response with cache headers
@@ -329,9 +345,48 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         headers.set('Content-Type', 'application/json');
         addRateLimitHeaders(headers, rateLimitResult);
 
+        let finalBody = cachedEntry.response;
+        let finalHeaders = headers;
+        let finalStatus = 200;
+
+        const transformationRules = coerceTransformationRules(apiKey.transformationRules);
+        if (transformationRules.length > 0) {
+          try {
+            const transformed = await transformResponse(
+              {
+                status: 200,
+                statusText: 'OK',
+                headers: Object.fromEntries([...headers.entries()].map(([k, v]) => [k.toLowerCase(), v])),
+                body: cachedEntry.response,
+              },
+              transformationRules as TransformationRule[],
+              {
+                model: cachedEntry.model,
+                endpoint: path,
+              }
+            );
+
+            finalBody = transformed.body;
+            finalStatus = transformed.status;
+            finalHeaders = new Headers();
+            for (const [key, value] of Object.entries(transformed.headers)) {
+              finalHeaders.set(key, value);
+            }
+          } catch (transformError) {
+            console.error('Response transformation error:', transformError);
+          }
+        }
+
+        await incrementTokenUsage(
+          apiKey.id,
+          cachedEntry.tokensInput,
+          cachedEntry.tokensOutput,
+          cachedEntry.model
+        );
+
         await logProxyRequestAsync({
           apiKeyId: apiKey.id,
-          providerId: cachePolicyProvider.id,
+          providerId: cachedProvider.id,
           providerFamily: 'claude',
           method: request.method,
           path,
@@ -360,10 +415,10 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
               },
             },
             provider: {
-              id: cachePolicyProvider.id,
-              name: cachePolicyProvider.name,
-              endpoint: cachePolicyProvider.endpoint,
-              region: cachePolicyProvider.region || undefined,
+              id: cachedProvider.id,
+              name: cachedProvider.name,
+              endpoint: cachedProvider.endpoint,
+              region: cachedProvider.region || undefined,
             },
             request: {
               method: request.method,
@@ -378,7 +433,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
             },
             routing: {
               strategy: apiKey.providerSelectionStrategy,
-              selectedProvider: cachePolicyProvider.name,
+              selectedProvider: cachedProvider.name,
               alternatives: selectedProviders.map((provider) => provider.name),
             },
             caching: {
@@ -388,9 +443,9 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
           });
         }
 
-        return NextResponse.json(cachedEntry.response, {
-          status: 200,
-          headers,
+        return NextResponse.json(finalBody, {
+          status: finalStatus,
+          headers: finalHeaders,
         });
       }
     }
@@ -416,7 +471,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         async (usageData) => {
           const model = usageData.model || requestedModel || 'claude';
           // Increment token usage for quota tracking (await to ensure it completes)
-          await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
+          await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput, model);
 
           await logProxyRequestAsync({
             apiKeyId: apiKey.id,
@@ -500,7 +555,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     if (usageData) {
       const model = usageData.model || requestedModel || 'claude';
       // Increment token usage for quota tracking (await to ensure it completes)
-      await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
+      await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput, model);
 
       await logProxyRequestAsync({
         apiKeyId: apiKey.id,
@@ -520,7 +575,10 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
 
       // Cache successful responses if caching is enabled
       if (bodyRecord && usedProvider.cacheEnabled && isCacheable(bodyRecord) && upstreamResponse.status === 200) {
-        const cacheKey = await generateCacheKey(model, bodyRecord);
+        const cacheKey = await generateCacheKey(model, bodyRecord, {
+          apiKeyId: apiKey.id,
+          providerId: usedProvider.id,
+        });
         const ttl = usedProvider.cacheTtlSeconds || 300;
 
         // Store in cache (don't await - fire and forget)
@@ -674,4 +732,4 @@ export const POST = handleRequest;
 export const PUT = handleRequest;
 export const PATCH = handleRequest;
 export const DELETE = handleRequest;
-export const OPTIONS = handleRequest;
+export const OPTIONS = createProxyOptionsResponse;

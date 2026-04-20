@@ -18,6 +18,7 @@ import { makeProxyRequestWithStrategy } from '@/lib/proxy/failover';
 import { verifyTOTP } from '@/lib/security/2fa';
 import { readJsonBodyIfPresent } from '@/lib/http/request-body';
 import { isDebugModeEnabled, logDebugInfo } from '@/lib/debug/replay';
+import { createProxyOptionsResponse } from '@/lib/proxy/cors';
 
 export const runtime = 'edge';
 
@@ -266,7 +267,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
       );
     }
 
-    const cachePolicyProvider = selectedProviders.find((p) => p.cacheEnabled);
+    const cachePolicyProviders = selectedProviders.filter((p) => p.cacheEnabled);
 
     const rateLimitResult = await checkRateLimit(apiKey);
     if (!rateLimitResult.allowed) {
@@ -283,19 +284,74 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         ? (body as Record<string, unknown>)
         : null;
 
-    if (bodyRecord && cachePolicyProvider && isCacheable(bodyRecord)) {
-      const cacheKey = await generateCacheKey(requestedModel || 'gemini', bodyRecord);
-      const cachedEntry = await getCachedResponseEntry(cacheKey);
+    if (bodyRecord && cachePolicyProviders.length > 0 && isCacheable(bodyRecord)) {
+      let cachedEntry = null;
+      let cachedProvider = null;
+      let cacheKey = '';
+      const cacheModel = requestedModel || 'gemini';
 
-      if (cachedEntry) {
+      for (const provider of cachePolicyProviders) {
+        const providerCacheKey = await generateCacheKey(cacheModel, bodyRecord, {
+          apiKeyId: apiKey.id,
+          providerId: provider.id,
+        });
+        const providerCachedEntry = await getCachedResponseEntry(providerCacheKey);
+        if (providerCachedEntry) {
+          cachedEntry = providerCachedEntry;
+          cachedProvider = provider;
+          cacheKey = providerCacheKey;
+          break;
+        }
+      }
+
+      if (cachedEntry && cachedProvider) {
         const headers = new Headers();
         headers.set('X-Cache', 'HIT');
         headers.set('Content-Type', 'application/json');
         addRateLimitHeaders(headers, rateLimitResult);
 
+        let finalBody = cachedEntry.response;
+        let finalHeaders = headers;
+        let finalStatus = 200;
+
+        const transformationRules = coerceTransformationRules(apiKey.transformationRules);
+        if (transformationRules.length > 0) {
+          try {
+            const transformed = await transformResponse(
+              {
+                status: 200,
+                statusText: 'OK',
+                headers: Object.fromEntries([...headers.entries()].map(([k, v]) => [k.toLowerCase(), v])),
+                body: cachedEntry.response,
+              },
+              transformationRules as TransformationRule[],
+              {
+                model: cachedEntry.model,
+                endpoint: path,
+              }
+            );
+
+            finalBody = transformed.body;
+            finalStatus = transformed.status;
+            finalHeaders = new Headers();
+            for (const [key, value] of Object.entries(transformed.headers)) {
+              finalHeaders.set(key, value);
+            }
+          } catch (transformError) {
+            console.error('Response transformation error:', transformError);
+          }
+        }
+
+        await incrementTokenUsage(
+          apiKey.id,
+          cachedEntry.tokensInput,
+          cachedEntry.tokensOutput,
+          cachedEntry.model
+        );
+
         await logProxyRequestAsync({
           apiKeyId: apiKey.id,
-          providerId: cachePolicyProvider.id,
+          providerId: cachedProvider.id,
           providerFamily: 'gemini',
           method: request.method,
           path,
@@ -326,10 +382,10 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
               },
             },
             provider: {
-              id: cachePolicyProvider.id,
-              name: cachePolicyProvider.name,
-              endpoint: cachePolicyProvider.endpoint,
-              region: cachePolicyProvider.region || undefined,
+              id: cachedProvider.id,
+              name: cachedProvider.name,
+              endpoint: cachedProvider.endpoint,
+              region: cachedProvider.region || undefined,
             },
             request: {
               method: request.method,
@@ -344,7 +400,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
             },
             routing: {
               strategy: apiKey.providerSelectionStrategy,
-              selectedProvider: cachePolicyProvider.name,
+              selectedProvider: cachedProvider.name,
               alternatives: selectedProviders.map((provider) => provider.name),
             },
             caching: {
@@ -354,9 +410,9 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
           });
         }
 
-        return NextResponse.json(cachedEntry.response, {
-          status: 200,
-          headers,
+        return NextResponse.json(finalBody, {
+          status: finalStatus,
+          headers: finalHeaders,
         });
       }
     }
@@ -377,7 +433,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
         upstreamResponse,
         async (usageData) => {
           const model = usageData.model || requestedModel || 'gemini';
-          await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
+          await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput, model);
           await logProxyRequestAsync({
             apiKeyId: apiKey.id,
             providerId: usedProvider.id,
@@ -460,7 +516,7 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
 
     if (usageData) {
       const model = usageData.model || requestedModel || 'gemini';
-      await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput);
+      await incrementTokenUsage(apiKey.id, usageData.tokensInput, usageData.tokensOutput, model);
       await logProxyRequestAsync({
         apiKeyId: apiKey.id,
         providerId: usedProvider.id,
@@ -540,8 +596,11 @@ async function handleRequest(request: NextRequest, context: { params: Promise<{ 
     }
 
     if (bodyRecord && usedProvider.cacheEnabled && isCacheable(bodyRecord) && upstreamResponse.ok) {
-      const cacheKey = await generateCacheKey(requestedModel || 'gemini', bodyRecord);
       const cacheModel = usageData?.model || requestedModel || 'gemini';
+      const cacheKey = await generateCacheKey(cacheModel, bodyRecord, {
+        apiKeyId: apiKey.id,
+        providerId: usedProvider.id,
+      });
       const ttl = usedProvider.cacheTtlSeconds || 300;
       setCachedResponse(
         cacheKey,
@@ -629,4 +688,4 @@ export const POST = handleRequest;
 export const PUT = handleRequest;
 export const PATCH = handleRequest;
 export const DELETE = handleRequest;
-export const OPTIONS = handleRequest;
+export const OPTIONS = createProxyOptionsResponse;

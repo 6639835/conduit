@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { usageLogs, apiKeys } from '@/lib/db/schema';
-import { desc, gte, and, eq } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { desc, gte, and, eq, sql } from 'drizzle-orm';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission, Role } from '@/lib/auth/rbac';
 
 /**
  * GET /api/admin/analytics/export?format=csv|json&days=7
  * Export usage data in CSV or JSON format
  */
 export async function GET(request: NextRequest) {
-  const authResult = await checkAuth();
-  if (authResult.error) return authResult.error;
+  const authResult = await requirePermission(Permission.ANALYTICS_EXPORT);
+  if (!authResult.authorized) return authResult.response;
 
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -23,12 +24,18 @@ export async function GET(request: NextRequest) {
     startDate.setDate(startDate.getDate() - days);
 
     // Build where conditions
-    const whereConditions = apiKeyId
-      ? and(
-          gte(usageLogs.timestamp, startDate),
-          eq(usageLogs.apiKeyId, apiKeyId)
-        )
-      : gte(usageLogs.timestamp, startDate);
+    const conditions = [gte(usageLogs.timestamp, startDate)];
+    if (apiKeyId) {
+      conditions.push(eq(usageLogs.apiKeyId, apiKeyId));
+    }
+    if (authResult.adminContext.role !== Role.SUPER_ADMIN) {
+      conditions.push(
+        authResult.adminContext.organizationId
+          ? eq(apiKeys.organizationId, authResult.adminContext.organizationId)
+          : sql`false`
+      );
+    }
+    const whereConditions = and(...conditions);
 
     // Build query
     const logs = await db

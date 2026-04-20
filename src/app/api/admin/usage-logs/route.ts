@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { usageLogs, apiKeys } from '@/lib/db/schema';
 import { and, desc, eq, gte, ilike, lte, sql } from 'drizzle-orm';
 import { checkAuth } from '@/lib/auth/middleware';
+import { Role } from '@/lib/auth/rbac';
 
 interface UsageLogsResponse {
   success: boolean;
@@ -51,6 +52,13 @@ export async function GET(request: NextRequest) {
     const query = searchParams.get('q');
 
     const filters = [] as Array<ReturnType<typeof sql>>;
+    if (authResult.adminContext.role !== Role.SUPER_ADMIN) {
+      filters.push(
+        authResult.adminContext.organizationId
+          ? eq(apiKeys.organizationId, authResult.adminContext.organizationId)
+          : sql`false`
+      );
+    }
 
     if (status === 'success') {
       filters.push(sql`${usageLogs.statusCode} < 400`);

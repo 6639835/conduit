@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { webhookConfigurations } from '@/lib/db/schema';
-import { desc, sql } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { desc, eq, sql } from 'drizzle-orm';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission, Role } from '@/lib/auth/rbac';
 import { z } from 'zod';
 import crypto from 'crypto';
 
@@ -58,13 +59,12 @@ interface WebhookResponse {
 
 /**
  * POST /api/admin/webhooks - Create a new webhook configuration
- * Requires authentication
+ * Requires WEBHOOK_CREATE permission
  */
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.WEBHOOK_CREATE);
+    if (!authResult.authorized) return authResult.response;
 
     const body = await request.json();
     const validationResult = createWebhookSchema.safeParse(body);
@@ -80,6 +80,32 @@ export async function POST(request: NextRequest) {
     }
 
     const data = validationResult.data;
+    const organizationId =
+      authResult.adminContext.role === Role.SUPER_ADMIN
+        ? data.organizationId || null
+        : authResult.adminContext.organizationId;
+
+    if (authResult.adminContext.role !== Role.SUPER_ADMIN) {
+      if (!authResult.adminContext.organizationId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Admin is not assigned to an organization',
+          } as WebhookResponse,
+          { status: 403 }
+        );
+      }
+
+      if (data.organizationId && data.organizationId !== authResult.adminContext.organizationId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'You do not have access to this organization',
+          } as WebhookResponse,
+          { status: 403 }
+        );
+      }
+    }
 
     // Generate a secret if not provided
     const secret = data.secret || crypto.randomBytes(32).toString('hex');
@@ -93,7 +119,7 @@ export async function POST(request: NextRequest) {
         secret,
         events: data.events,
         apiKeyId: data.apiKeyId || null,
-        organizationId: data.organizationId || null,
+        organizationId,
         retryPolicy: data.retryPolicy || {
           maxRetries: 3,
           backoffMultiplier: 2,
@@ -101,7 +127,7 @@ export async function POST(request: NextRequest) {
         },
         timeout: data.timeout,
         headers: data.headers || null,
-        createdBy: session.user.id,
+        createdBy: authResult.adminContext.id,
       })
       .returning();
 
@@ -126,29 +152,37 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/admin/webhooks - List all webhook configurations
- * Requires authentication
+ * Requires WEBHOOK_READ permission
  * Query params: page (default 1), limit (default 50, max 100)
  */
 export async function GET(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.WEBHOOK_READ);
+    if (!authResult.authorized) return authResult.response;
 
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
     const offset = (page - 1) * limit;
+    const whereClause =
+      authResult.adminContext.role === Role.SUPER_ADMIN
+        ? undefined
+        : authResult.adminContext.organizationId
+          ? eq(webhookConfigurations.organizationId, authResult.adminContext.organizationId)
+          : sql`false`;
 
     const webhooks = await db
       .select()
       .from(webhookConfigurations)
+      .where(whereClause)
       .orderBy(desc(webhookConfigurations.createdAt))
       .limit(limit)
       .offset(offset);
 
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)::int` })
-      .from(webhookConfigurations);
+      .from(webhookConfigurations)
+      .where(whereClause);
 
     const totalPages = Math.ceil(count / limit);
 

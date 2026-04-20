@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { webhookConfigurations, webhookDeliveryLogs } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { and, eq, sql } from 'drizzle-orm';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission, Role } from '@/lib/auth/rbac';
 import { createHmac } from 'crypto';
 
 interface TestWebhookResponse {
@@ -20,16 +21,25 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.WEBHOOK_UPDATE);
+    if (!authResult.authorized) return authResult.response;
 
     const { id } = await params;
+    const whereClause =
+      authResult.adminContext.role === Role.SUPER_ADMIN
+        ? eq(webhookConfigurations.id, id)
+        : authResult.adminContext.organizationId
+          ? and(
+              eq(webhookConfigurations.id, id),
+              eq(webhookConfigurations.organizationId, authResult.adminContext.organizationId)
+            )
+          : sql`false`;
 
     // Get webhook configuration
     const [webhook] = await db
       .select()
       .from(webhookConfigurations)
-      .where(eq(webhookConfigurations.id, id))
+      .where(whereClause)
       .limit(1);
 
     if (!webhook) {
@@ -127,7 +137,7 @@ export async function POST(
         lastFailureAt: status === 'failed' ? new Date() : webhook.lastFailureAt,
         failureCount: status === 'failed' ? (webhook.failureCount || 0) + 1 : webhook.failureCount,
       })
-      .where(eq(webhookConfigurations.id, id));
+      .where(whereClause);
 
     return NextResponse.json(
       {

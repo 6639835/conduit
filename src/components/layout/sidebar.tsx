@@ -50,8 +50,18 @@ const adminNavItems: NavItem[] = [
 
 export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
   const pathname = usePathname();
+  const [currentHash, setCurrentHash] = React.useState("");
   const isAdmin = pathname?.startsWith("/admin");
   const navItems = isAdmin ? adminNavItems : userNavItems;
+
+  React.useEffect(() => {
+    const updateHash = () => setCurrentHash(window.location.hash);
+
+    updateHash();
+    window.addEventListener("hashchange", updateHash);
+
+    return () => window.removeEventListener("hashchange", updateHash);
+  }, [pathname]);
 
   return (
     <>
@@ -77,12 +87,17 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
 
           {navItems.map((item) => {
             const Icon = item.icon;
-            const itemPath = item.href.split("#")[0];
-            const isActive =
-              pathname === itemPath ||
-              (itemPath !== "/admin" &&
-                itemPath !== "/usage" &&
-                pathname?.startsWith(itemPath));
+            const [itemPath, itemHashFragment] = item.href.split("#");
+            const itemHash = itemHashFragment ? `#${itemHashFragment}` : "";
+            const isExactPathActive =
+              pathname === itemPath &&
+              (itemPath === "/usage" ? currentHash === "" : true);
+            const isActive = itemHash
+              ? pathname === itemPath && currentHash === itemHash
+              : isExactPathActive ||
+                (itemPath !== "/admin" &&
+                  itemPath !== "/usage" &&
+                  pathname?.startsWith(itemPath));
 
             return (
               <Link

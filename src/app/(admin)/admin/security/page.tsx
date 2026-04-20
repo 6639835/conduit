@@ -56,10 +56,10 @@ export default function SecurityPage() {
       if (!res.ok) throw new Error('Failed to load API keys');
 
       const data = await res.json();
-      setApiKeys(data.data || []);
+      setApiKeys(data.apiKeys || []);
 
-      if (data.data?.length > 0 && !selectedKeyId) {
-        setSelectedKeyId(data.data[0].id);
+      if (data.apiKeys?.length > 0 && !selectedKeyId) {
+        setSelectedKeyId(data.apiKeys[0].id);
       }
     } catch (error) {
       console.error('Error loading API keys:', error);

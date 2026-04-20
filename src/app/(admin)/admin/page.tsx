@@ -22,6 +22,7 @@ import {
   FileText,
   ShieldCheck,
 } from 'lucide-react';
+import { formatCost } from '@/lib/analytics/cost-calculator';
 
 interface QuickStats {
   totalKeys: number;
@@ -222,7 +223,7 @@ export default function AdminDashboard() {
               />
               <MetricCard
                 title="Total Cost (30d)"
-                value={`$${(stats?.totalCost || 0).toFixed(2)}`}
+                value={formatCost(stats?.totalCost || 0)}
                 icon={DollarSign}
               />
             </>

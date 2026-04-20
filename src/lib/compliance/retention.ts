@@ -10,7 +10,7 @@
 
 import { db } from '@/lib/db';
 import { requestLogs, apiKeys, organizations } from '@/lib/db/schema';
-import { lt, and, eq, isNull, sql } from 'drizzle-orm';
+import { lt, and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 
 // ============================================================================
 // Data Retention
@@ -75,7 +75,7 @@ export async function enforceRetentionPolicy(
             retentionPolicyDays: organizations.retentionPolicyDays,
           })
           .from(organizations)
-          .where(and(eq(organizations.id, organizationId), isNull(organizations.retentionPolicyDays)))
+          .where(and(eq(organizations.id, organizationId), isNotNull(organizations.retentionPolicyDays)))
       : await db
           .select({
             id: organizations.id,
@@ -83,7 +83,7 @@ export async function enforceRetentionPolicy(
             retentionPolicyDays: organizations.retentionPolicyDays,
           })
           .from(organizations)
-          .where(isNull(organizations.retentionPolicyDays));
+          .where(isNotNull(organizations.retentionPolicyDays));
 
     const orgs = orgsQuery.filter(o => o.retentionPolicyDays !== null);
 
@@ -115,9 +115,7 @@ export async function enforceRetentionPolicy(
           .delete(requestLogs)
           .where(
             and(
-              // NOTE: Drizzle expects a scalar for `eq()`. This intentionally mirrors the existing
-              // runtime behavior (passing an array) while keeping types satisfied.
-              eq(requestLogs.apiKeyId, apiKeyIds as unknown as string),
+              inArray(requestLogs.apiKeyId, apiKeyIds),
               lt(requestLogs.createdAt, cutoffDate)
             )
           )
@@ -280,27 +278,27 @@ export async function exportOrganizationData(
       .from(apiKeys)
       .where(and(...apiKeyConditions));
 
+    const scopedApiKeyIds = apiKeysData.map((key) => key.id);
+
     // Get usage logs (limited to last 10,000 for performance)
-    const logsData = await db
-      .select({
-        id: requestLogs.id,
-        timestamp: requestLogs.createdAt,
-        method: requestLogs.method,
-        endpoint: requestLogs.endpoint,
-        statusCode: requestLogs.statusCode,
-        model: requestLogs.model,
-        tokensUsed: sql<number>`${requestLogs.promptTokens} + ${requestLogs.completionTokens}`,
-        cost: requestLogs.cost,
-        errorMessage: requestLogs.errorMessage,
-      })
-      .from(requestLogs)
-      .where(
-        apiKeyId
-          ? eq(requestLogs.apiKeyId, apiKeyId)
-          : undefined
-      )
-      .orderBy(requestLogs.createdAt)
-      .limit(10000);
+    const logsData = scopedApiKeyIds.length > 0
+      ? await db
+          .select({
+            id: requestLogs.id,
+            timestamp: requestLogs.createdAt,
+            method: requestLogs.method,
+            endpoint: requestLogs.endpoint,
+            statusCode: requestLogs.statusCode,
+            model: requestLogs.model,
+            tokensUsed: sql<number>`${requestLogs.promptTokens} + ${requestLogs.completionTokens}`,
+            cost: requestLogs.cost,
+            errorMessage: requestLogs.errorMessage,
+          })
+          .from(requestLogs)
+          .where(inArray(requestLogs.apiKeyId, scopedApiKeyIds))
+          .orderBy(requestLogs.createdAt)
+          .limit(10000)
+      : [];
 
     // Redact PII from usageLogs
     const redactedLogs = logsData.map(log => ({
@@ -469,11 +467,16 @@ export async function generateComplianceReport(
     .from(apiKeys)
     .where(eq(apiKeys.organizationId, organizationId));
 
+  const scopedApiKeyIds = apiKeysCount.map((key) => key.id);
+
   // Count usageLogs
-  const logsCount = await db
-    .select({ id: requestLogs.id })
-    .from(requestLogs)
-    .limit(100000); // Limit for performance
+  const logsCount = scopedApiKeyIds.length > 0
+    ? await db
+        .select({ id: requestLogs.id })
+        .from(requestLogs)
+        .where(inArray(requestLogs.apiKeyId, scopedApiKeyIds))
+        .limit(100000) // Limit for performance
+    : [];
 
   const retentionPolicy = org.retentionPolicyDays
     ? {

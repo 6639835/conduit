@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { setupTOTP } from '@/lib/security/2fa';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
+import { apiKeyAccessCondition } from '@/lib/auth/api-key-access';
 
 // POST /api/admin/2fa/setup - Generate TOTP secret and QR code for an API key
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.API_KEY_UPDATE);
+    if (!authResult.authorized) return authResult.response;
 
     const body = await request.json();
     const { apiKeyId } = body;
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const [apiKey] = await db
       .select()
       .from(apiKeys)
-      .where(eq(apiKeys.id, apiKeyId))
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext))
       .limit(1);
 
     if (!apiKey) {
@@ -39,14 +39,14 @@ export async function POST(request: NextRequest) {
     // Generate TOTP setup
     const setup = await setupTOTP(
       apiKey.name || apiKey.keyPrefix,
-      session.user.email ?? 'admin@conduit.local'
+      authResult.adminContext.id
     );
 
     // Store the secret in the database
     await db
       .update(apiKeys)
       .set({ totpSecret: setup.secret })
-      .where(eq(apiKeys.id, apiKeyId));
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext));
 
     return NextResponse.json({
       success: true,

@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
 import { logAudit } from '@/lib/audit';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
+import { apiKeyAccessCondition } from '@/lib/auth/api-key-access';
 
 // POST /api/admin/2fa/disable - Disable 2FA for an API key
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.API_KEY_UPDATE);
+    if (!authResult.authorized) return authResult.response;
 
     const body = await request.json();
     const { apiKeyId } = body;
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const [apiKey] = await db
       .select()
       .from(apiKeys)
-      .where(eq(apiKeys.id, apiKeyId))
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext))
       .limit(1);
 
     if (!apiKey) {
@@ -50,11 +50,11 @@ export async function POST(request: NextRequest) {
         totpEnabled: false,
         totpSecret: null,
       })
-      .where(eq(apiKeys.id, apiKeyId));
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext));
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email ?? undefined,
+      adminId: authResult.adminContext.id,
       resourceType: 'api_key',
       resourceId: apiKeyId,
       action: '2fa_disabled',

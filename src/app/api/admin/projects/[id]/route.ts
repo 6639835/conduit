@@ -3,7 +3,8 @@ import { db } from '@/lib/db';
 import { projects } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { logAudit } from '@/lib/audit';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission, requireOrganizationAccess } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
 
 export const runtime = 'edge';
 
@@ -14,8 +15,8 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.ORG_READ);
+    if (!authResult.authorized) return authResult.response;
 
     const [project] = await db
       .select()
@@ -26,6 +27,9 @@ export async function GET(
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
+
+    const orgAccessResult = await requireOrganizationAccess(project.organizationId);
+    if (!orgAccessResult.authorized) return orgAccessResult.response;
 
     return NextResponse.json({ project });
   } catch (error) {
@@ -43,13 +47,25 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.ORG_UPDATE);
+    if (!authResult.authorized) return authResult.response;
 
     const { id } = await context.params;
     const body = await request.json();
     const { name, sharedQuotas } = body;
+
+    const [existingProject] = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, id))
+      .limit(1);
+
+    if (!existingProject) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    const orgAccessResult = await requireOrganizationAccess(existingProject.organizationId);
+    if (!orgAccessResult.authorized) return orgAccessResult.response;
 
     const updateData: Partial<typeof projects.$inferInsert> = {};
     if (name !== undefined) updateData.name = name;
@@ -71,7 +87,7 @@ export async function PATCH(
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email ?? undefined,
+      adminId: authResult.adminContext.id,
       resourceType: 'project',
       resourceId: project.id,
       action: 'update',
@@ -96,9 +112,21 @@ export async function DELETE(
 ) {
   try {
     const { id } = await context.params;
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.ORG_UPDATE);
+    if (!authResult.authorized) return authResult.response;
+
+    const [existingProject] = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, id))
+      .limit(1);
+
+    if (!existingProject) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    const orgAccessResult = await requireOrganizationAccess(existingProject.organizationId);
+    if (!orgAccessResult.authorized) return orgAccessResult.response;
 
     const [project] = await db
       .delete(projects)
@@ -111,7 +139,7 @@ export async function DELETE(
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email ?? undefined,
+      adminId: authResult.adminContext.id,
       resourceType: 'project',
       resourceId: project.id,
       action: 'delete',

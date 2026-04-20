@@ -11,20 +11,30 @@ export interface CachedResponseEntry {
   expiresAt: Date;
 }
 
+export interface CacheKeyScope {
+  apiKeyId: string;
+  providerId?: string;
+}
+
 /**
  * Generates a cache key from request data using Web Crypto API
  * @param model - The model name
  * @param requestBody - The request body
+ * @param scope - Cache isolation scope
  * @returns Cache key hash
  */
 export async function generateCacheKey(
   model: string,
-  requestBody: Record<string, unknown>
+  requestBody: Record<string, unknown>,
+  scope?: CacheKeyScope
 ): Promise<string> {
   // Create a deterministic string from the request (stable key ordering)
   const cacheData = {
-    ...requestBody,
-    model,
+    scope: scope || null,
+    request: {
+      ...requestBody,
+      model,
+    },
   };
 
   const dataString = stableStringify(cacheData);

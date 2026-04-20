@@ -83,16 +83,23 @@ export const NotificationsDropdown = () => {
 
   // Mark notification as read
   const markAsRead = async (notificationId: string) => {
+    const notification = notifications.find((n) => n.id === notificationId);
+
     try {
-      await fetch("/api/admin/notifications", {
+      const response = await fetch("/api/admin/notifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notificationIds: [notificationId] }),
       });
+      if (!response.ok) {
+        throw new Error(`Failed with status ${response.status}`);
+      }
       setNotifications((prev) =>
         prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
       );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      if (notification && !notification.isRead) {
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
     } catch (error) {
       console.error("Failed to mark notification as read:", error);
     }
@@ -101,11 +108,14 @@ export const NotificationsDropdown = () => {
   // Mark all as read
   const markAllAsRead = async () => {
     try {
-      await fetch("/api/admin/notifications", {
+      const response = await fetch("/api/admin/notifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ markAllRead: true }),
       });
+      if (!response.ok) {
+        throw new Error(`Failed with status ${response.status}`);
+      }
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
       setUnreadCount(0);
     } catch (error) {

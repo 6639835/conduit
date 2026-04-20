@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revokeApiKey } from '@/lib/key-rotation';
 import { logAudit } from '@/lib/audit';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
+import { canAccessApiKey } from '@/lib/auth/api-key-access';
 
 // POST /api/admin/keys/[id]/revoke - Revoke an API key immediately
 export async function POST(
@@ -10,9 +12,12 @@ export async function POST(
 ) {
   const { id } = await context.params;
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.API_KEY_DELETE);
+    if (!authResult.authorized) return authResult.response;
+
+    if (!(await canAccessApiKey(id, authResult.adminContext))) {
+      return NextResponse.json({ error: 'API key not found' }, { status: 404 });
+    }
 
     const body = await request.json();
     const { reason } = body;
@@ -28,7 +33,7 @@ export async function POST(
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email ?? undefined,
+      adminId: authResult.adminContext.id,
       resourceType: 'api_key',
       resourceId: id,
       action: 'revoke',

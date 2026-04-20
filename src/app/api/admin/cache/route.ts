@@ -9,7 +9,7 @@ import { Permission } from '@/lib/auth/rbac';
 import { getCacheAnalytics, clearSemanticCache } from '@/lib/cache/semantic';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { apiKeyAccessCondition, canAccessApiKey } from '@/lib/auth/api-key-access';
 import { z } from 'zod';
 
 const warmCacheSchema = z.object({
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
     const [key] = await db
       .select({ id: apiKeys.id, name: apiKeys.name })
       .from(apiKeys)
-      .where(eq(apiKeys.id, apiKeyId))
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext))
       .limit(1);
 
     if (!key) {
@@ -111,6 +111,16 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    if (!(await canAccessApiKey(apiKeyId, authResult.adminContext))) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'API key not found',
+        },
+        { status: 404 }
+      );
+    }
+
     const cleared = await clearSemanticCache(apiKeyId);
 
     return NextResponse.json({
@@ -163,7 +173,7 @@ export async function POST(request: NextRequest) {
     const [key] = await db
       .select({ id: apiKeys.id })
       .from(apiKeys)
-      .where(eq(apiKeys.id, apiKeyId))
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext))
       .limit(1);
 
     if (!key) {

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
 import type { UpdateApiKeyRequest, RevokeApiKeyResponse } from '@/types';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
+import { apiKeyAccessCondition } from '@/lib/auth/api-key-access';
 
 /**
  * PATCH /api/admin/keys/[id] - Update an API key
@@ -12,12 +13,12 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Check authentication
-  const authResult = await checkAuth();
-  if (authResult.error) return authResult.error;
+  const authResult = await requirePermission(Permission.API_KEY_UPDATE);
+  if (!authResult.authorized) return authResult.response;
 
   try {
     const { id } = await params;
+    const whereClause = apiKeyAccessCondition(id, authResult.adminContext);
     const body: UpdateApiKeyRequest = await request.json();
 
     // Build update object
@@ -38,7 +39,7 @@ export async function PATCH(
     const [updatedKey] = await db
       .update(apiKeys)
       .set(updates)
-      .where(eq(apiKeys.id, id))
+      .where(whereClause)
       .returning();
 
     if (!updatedKey) {
@@ -78,12 +79,12 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Check authentication
-  const authResult = await checkAuth();
-  if (authResult.error) return authResult.error;
+  const authResult = await requirePermission(Permission.API_KEY_DELETE);
+  if (!authResult.authorized) return authResult.response;
 
   try {
     const { id } = await params;
+    const whereClause = apiKeyAccessCondition(id, authResult.adminContext);
 
     // Mark as revoked (soft delete)
     const [revokedKey] = await db
@@ -93,7 +94,7 @@ export async function DELETE(
         revokedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(apiKeys.id, id))
+      .where(whereClause)
       .returning();
 
     if (!revokedKey) {
@@ -131,12 +132,12 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Check authentication
-  const authResult = await checkAuth();
-  if (authResult.error) return authResult.error;
+  const authResult = await requirePermission(Permission.API_KEY_READ);
+  if (!authResult.authorized) return authResult.response;
 
   try {
     const { id } = await params;
+    const whereClause = apiKeyAccessCondition(id, authResult.adminContext);
 
     const [apiKey] = await db
       .select({
@@ -155,7 +156,7 @@ export async function GET(
         updatedAt: apiKeys.updatedAt,
       })
       .from(apiKeys)
-      .where(eq(apiKeys.id, id))
+      .where(whereClause)
       .limit(1);
 
     if (!apiKey) {

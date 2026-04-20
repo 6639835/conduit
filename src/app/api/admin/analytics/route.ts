@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { usageLogs, apiKeys } from '@/lib/db/schema';
 import { eq, gte, sql, desc } from 'drizzle-orm';
 import { checkAuth } from '@/lib/auth/middleware';
+import { Role } from '@/lib/auth/rbac';
 
 interface AnalyticsResponse {
   success: boolean;
@@ -63,6 +64,15 @@ export async function GET(request: NextRequest) {
     // Calculate start date
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    const apiKeyScope =
+      authResult.adminContext.role === Role.SUPER_ADMIN
+        ? undefined
+        : authResult.adminContext.organizationId
+          ? eq(apiKeys.organizationId, authResult.adminContext.organizationId)
+          : sql`false`;
+    const usageScope = apiKeyScope
+      ? sql`${usageLogs.timestamp} >= ${startDate} and ${apiKeyScope}`
+      : gte(usageLogs.timestamp, startDate);
 
     // Get total API key counts
     const apiKeyStats = await db
@@ -71,6 +81,7 @@ export async function GET(request: NextRequest) {
         activeKeys: sql<number>`count(*) filter (where ${apiKeys.isActive} = true)`,
       })
       .from(apiKeys)
+      .where(apiKeyScope)
       .execute();
 
     // Get overall usage statistics
@@ -84,7 +95,8 @@ export async function GET(request: NextRequest) {
         totalCostUsd: sql<number>`coalesce(sum(${usageLogs.costUsd}), 0)`,
       })
       .from(usageLogs)
-      .where(gte(usageLogs.timestamp, startDate))
+      .leftJoin(apiKeys, eq(usageLogs.apiKeyId, apiKeys.id))
+      .where(usageScope)
       .execute();
 
     // Get model breakdown
@@ -97,7 +109,8 @@ export async function GET(request: NextRequest) {
         costUsd: sql<number>`coalesce(sum(${usageLogs.costUsd}), 0)`,
       })
       .from(usageLogs)
-      .where(gte(usageLogs.timestamp, startDate))
+      .leftJoin(apiKeys, eq(usageLogs.apiKeyId, apiKeys.id))
+      .where(usageScope)
       .groupBy(usageLogs.model)
       .execute();
 
@@ -127,7 +140,8 @@ export async function GET(request: NextRequest) {
         costUsd: sql<number>`coalesce(sum(${usageLogs.costUsd}), 0)`,
       })
       .from(usageLogs)
-      .where(gte(usageLogs.timestamp, startDate))
+      .leftJoin(apiKeys, eq(usageLogs.apiKeyId, apiKeys.id))
+      .where(usageScope)
       .groupBy(usageLogs.apiKeyId)
       .orderBy(desc(sql`count(*)`))
       .limit(10)
@@ -170,7 +184,8 @@ export async function GET(request: NextRequest) {
         costUsd: sql<number>`coalesce(sum(${usageLogs.costUsd}), 0)`,
       })
       .from(usageLogs)
-      .where(gte(usageLogs.timestamp, startDate))
+      .leftJoin(apiKeys, eq(usageLogs.apiKeyId, apiKeys.id))
+      .where(usageScope)
       .groupBy(sql`date(${usageLogs.timestamp})`)
       .orderBy(sql`date(${usageLogs.timestamp})`)
       .execute();

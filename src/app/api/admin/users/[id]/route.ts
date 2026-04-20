@@ -3,7 +3,8 @@ import { db } from '@/lib/db';
 import { admins, apiKeys } from '@/lib/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission, requireOrganizationAccess } from '@/lib/auth/middleware';
+import { Permission, canManageAdmin, normalizeRole } from '@/lib/auth/rbac';
 
 interface UpdateUserRequest {
   email?: string;
@@ -50,9 +51,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Check authentication
-  const authResult = await checkAuth();
-  if (authResult.error) return authResult.error;
+  const authResult = await requirePermission(Permission.ADMIN_READ);
+  if (!authResult.authorized) return authResult.response;
 
   try {
     const { id } = await params;
@@ -62,6 +62,8 @@ export async function GET(
         id: admins.id,
         email: admins.email,
         name: admins.name,
+        role: admins.role,
+        organizationId: admins.organizationId,
         isActive: admins.isActive,
         createdAt: admins.createdAt,
         updatedAt: admins.updatedAt,
@@ -79,6 +81,9 @@ export async function GET(
         { status: 404 }
       );
     }
+
+    const orgAccessResult = await requireOrganizationAccess(user.organizationId);
+    if (!orgAccessResult.authorized) return orgAccessResult.response;
 
     // Get API key count
     const keyCount = await db
@@ -124,13 +129,41 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Check authentication
-  const authResult = await checkAuth();
-  if (authResult.error) return authResult.error;
+  const authResult = await requirePermission(Permission.ADMIN_UPDATE);
+  if (!authResult.authorized) return authResult.response;
 
   try {
     const { id } = await params;
     const body: UpdateUserRequest = await request.json();
+
+    const [targetUser] = await db
+      .select({
+        role: admins.role,
+        organizationId: admins.organizationId,
+      })
+      .from(admins)
+      .where(eq(admins.id, id))
+      .limit(1);
+
+    if (!targetUser) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'User not found',
+        } as UpdateUserResponse,
+        { status: 404 }
+      );
+    }
+
+    if (!canManageAdmin(authResult.adminContext, normalizeRole(targetUser.role), targetUser.organizationId)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'You do not have permission to manage this admin user.',
+        } as UpdateUserResponse,
+        { status: 403 }
+      );
+    }
 
     // Build update object
     const updates: Partial<typeof admins.$inferInsert> & { updatedAt: Date } = {
@@ -230,12 +263,40 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Check authentication
-  const authResult = await checkAuth();
-  if (authResult.error) return authResult.error;
+  const authResult = await requirePermission(Permission.ADMIN_DELETE);
+  if (!authResult.authorized) return authResult.response;
 
   try {
     const { id } = await params;
+
+    const [targetUser] = await db
+      .select({
+        role: admins.role,
+        organizationId: admins.organizationId,
+      })
+      .from(admins)
+      .where(eq(admins.id, id))
+      .limit(1);
+
+    if (!targetUser) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'User not found',
+        } as DeleteUserResponse,
+        { status: 404 }
+      );
+    }
+
+    if (!canManageAdmin(authResult.adminContext, normalizeRole(targetUser.role), targetUser.organizationId)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'You do not have permission to manage this admin user.',
+        } as DeleteUserResponse,
+        { status: 403 }
+      );
+    }
 
     // Check if user has any API keys
     const keyCount = await db

@@ -7,7 +7,7 @@ import { requirePermission } from '@/lib/auth/middleware';
 import { Permission } from '@/lib/auth/rbac';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { apiKeyAccessCondition } from '@/lib/auth/api-key-access';
 import { z } from 'zod';
 
 const API_VERSION = 'v1';
@@ -34,6 +34,7 @@ export async function GET(
     if (!authResult.authorized) return authResult.response;
 
     const { id } = await params;
+    const whereClause = apiKeyAccessCondition(id, authResult.adminContext);
 
     const [key] = await db
       .select({
@@ -54,7 +55,7 @@ export async function GET(
         revokedAt: apiKeys.revokedAt,
       })
       .from(apiKeys)
-      .where(eq(apiKeys.id, id))
+      .where(whereClause)
       .limit(1);
 
     if (!key) {
@@ -106,6 +107,7 @@ export async function PATCH(
     if (!authResult.authorized) return authResult.response;
 
     const { id } = await params;
+    const whereClause = apiKeyAccessCondition(id, authResult.adminContext);
     const body = await request.json();
     const validation = updateApiKeySchema.safeParse(body);
 
@@ -135,7 +137,7 @@ export async function PATCH(
         monthlySpendLimitUsd: data.monthlySpendLimitUsd ?? undefined,
         updatedAt: new Date(),
       })
-      .where(eq(apiKeys.id, id))
+      .where(whereClause)
       .returning();
 
     if (!updated) {
@@ -188,6 +190,7 @@ export async function DELETE(
     if (!authResult.authorized) return authResult.response;
 
     const { id } = await params;
+    const whereClause = apiKeyAccessCondition(id, authResult.adminContext);
 
     // Revoke API key (soft delete)
     const [revoked] = await db
@@ -197,7 +200,7 @@ export async function DELETE(
         revokedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(apiKeys.id, id))
+      .where(whereClause)
       .returning({ id: apiKeys.id, keyPrefix: apiKeys.keyPrefix });
 
     if (!revoked) {

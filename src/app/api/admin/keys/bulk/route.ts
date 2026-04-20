@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiKeys, keyTemplates, providers } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission, Role, type AdminContext } from '@/lib/auth/rbac';
+import { apiKeyAccessCondition } from '@/lib/auth/api-key-access';
 import { z } from 'zod';
 import { generateApiKey } from '@/lib/auth/api-key';
 import { setProviderPool } from '@/lib/proxy/provider-pool';
@@ -68,10 +70,6 @@ interface BulkOperationResponse {
  */
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
-
     const body = await request.json();
     const validationResult = bulkOperationSchema.safeParse(body);
 
@@ -86,14 +84,22 @@ export async function POST(request: NextRequest) {
     }
 
     const data = validationResult.data;
+    const permission =
+      data.operation === 'create'
+        ? Permission.API_KEY_CREATE
+        : data.operation === 'revoke'
+          ? Permission.API_KEY_DELETE
+          : Permission.API_KEY_UPDATE;
+    const authResult = await requirePermission(permission);
+    if (!authResult.authorized) return authResult.response;
 
     // Handle different operations
     if (data.operation === 'create') {
-      return handleBulkCreate(data, session.user.id);
+      return handleBulkCreate(data, authResult.adminContext);
     } else if (data.operation === 'revoke') {
-      return handleBulkRevoke(data);
+      return handleBulkRevoke(data, authResult.adminContext);
     } else if (data.operation === 'update') {
-      return handleBulkUpdate(data);
+      return handleBulkUpdate(data, authResult.adminContext);
     }
 
     return NextResponse.json(
@@ -117,7 +123,7 @@ export async function POST(request: NextRequest) {
 
 async function handleBulkCreate(
   data: z.infer<typeof bulkCreateSchema>,
-  adminId: string
+  adminContext: AdminContext
 ): Promise<NextResponse<BulkOperationResponse>> {
   const results: Array<{
     id?: string;
@@ -130,6 +136,16 @@ async function handleBulkCreate(
   let template: typeof keyTemplates.$inferSelect | undefined;
   let provider: typeof providers.$inferSelect | undefined;
 
+  if (adminContext.role !== Role.SUPER_ADMIN && !adminContext.organizationId) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Admin is not assigned to an organization',
+      } as BulkOperationResponse,
+      { status: 403 }
+    );
+  }
+
   // Get template if specified
   if (data.templateId) {
     const [tmpl] = await db
@@ -139,6 +155,19 @@ async function handleBulkCreate(
       .limit(1);
 
     if (!tmpl || !tmpl.isActive) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Template not found or inactive',
+        } as BulkOperationResponse,
+        { status: 404 }
+      );
+    }
+
+    if (
+      adminContext.role !== Role.SUPER_ADMIN &&
+      (!adminContext.organizationId || tmpl.organizationId !== adminContext.organizationId)
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -225,7 +254,7 @@ async function handleBulkCreate(
         webhookUrl: null,
         slackWebhook: null,
         discordWebhook: null,
-        organizationId: null,
+        organizationId: adminContext.role === Role.SUPER_ADMIN ? null : adminContext.organizationId,
       };
 
       const [newKey] = await db
@@ -236,7 +265,7 @@ async function handleBulkCreate(
           name: keyName,
           ...settings,
           isActive: true,
-          createdBy: adminId,
+          createdBy: adminContext.id,
         })
         .returning();
 
@@ -272,7 +301,7 @@ async function handleBulkCreate(
   // Send notification
   try {
     await SystemNotifications.apiKeyCreated(
-      adminId,
+      adminContext.id,
       `Bulk created ${results.filter(r => r.status === 'success').length} keys`,
       results.length > 0 ? results[0].keyPrefix || 'N/A' : 'N/A'
     );
@@ -298,7 +327,8 @@ async function handleBulkCreate(
 }
 
 async function handleBulkRevoke(
-  data: z.infer<typeof bulkRevokeSchema>
+  data: z.infer<typeof bulkRevokeSchema>,
+  adminContext: AdminContext
 ): Promise<NextResponse<BulkOperationResponse>> {
   const results: Array<{
     id: string;
@@ -308,14 +338,19 @@ async function handleBulkRevoke(
 
   for (const keyId of data.apiKeyIds) {
     try {
-      await db
+      const [updated] = await db
         .update(apiKeys)
         .set({
           isActive: false,
           revokedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(apiKeys.id, keyId));
+        .where(apiKeyAccessCondition(keyId, adminContext))
+        .returning({ id: apiKeys.id });
+
+      if (!updated) {
+        throw new Error('API key not found');
+      }
 
       results.push({
         id: keyId,
@@ -349,7 +384,8 @@ async function handleBulkRevoke(
 }
 
 async function handleBulkUpdate(
-  data: z.infer<typeof bulkUpdateSchema>
+  data: z.infer<typeof bulkUpdateSchema>,
+  adminContext: AdminContext
 ): Promise<NextResponse<BulkOperationResponse>> {
   const results: Array<{
     id: string;
@@ -383,10 +419,15 @@ async function handleBulkUpdate(
 
   for (const keyId of data.apiKeyIds) {
     try {
-      await db
+      const [updated] = await db
         .update(apiKeys)
         .set(updateData)
-        .where(eq(apiKeys.id, keyId));
+        .where(apiKeyAccessCondition(keyId, adminContext))
+        .returning({ id: apiKeys.id });
+
+      if (!updated) {
+        throw new Error('API key not found');
+      }
 
       results.push({
         id: keyId,

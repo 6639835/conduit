@@ -38,6 +38,12 @@ type SelectOption = {
   disabled?: boolean;
 };
 
+type SelectMetadata = {
+  placeholder?: string;
+  triggerClassName?: string;
+  hasCompositeChildren: boolean;
+};
+
 function extractText(node: React.ReactNode): string {
   if (typeof node === "string" || typeof node === "number") {
     return String(node);
@@ -77,6 +83,56 @@ function collectSelectItems(children: React.ReactNode): SelectOption[] {
   return items;
 }
 
+function collectSelectMetadata(children: React.ReactNode): SelectMetadata {
+  const metadata: SelectMetadata = {
+    hasCompositeChildren: false,
+  };
+
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement(child)) return;
+
+    if (child.type === SelectTrigger) {
+      metadata.hasCompositeChildren = true;
+      const props = child.props as { children?: React.ReactNode; className?: string };
+      metadata.triggerClassName = cn(metadata.triggerClassName, props.className);
+      const childMetadata = collectSelectMetadata(props.children);
+      metadata.placeholder ??= childMetadata.placeholder;
+      metadata.hasCompositeChildren ||= childMetadata.hasCompositeChildren;
+      return;
+    }
+
+    if (child.type === SelectContent) {
+      metadata.hasCompositeChildren = true;
+      const props = child.props as { children?: React.ReactNode };
+      const childMetadata = collectSelectMetadata(props.children);
+      metadata.placeholder ??= childMetadata.placeholder;
+      metadata.hasCompositeChildren ||= childMetadata.hasCompositeChildren;
+      return;
+    }
+
+    if (child.type === SelectValue) {
+      metadata.hasCompositeChildren = true;
+      const props = child.props as SelectValueProps;
+      metadata.placeholder = props.placeholder;
+      return;
+    }
+
+    if (child.type === SelectItem) {
+      metadata.hasCompositeChildren = true;
+      return;
+    }
+
+    const props = child.props as { children?: React.ReactNode };
+    if (props.children) {
+      const childMetadata = collectSelectMetadata(props.children);
+      metadata.placeholder ??= childMetadata.placeholder;
+      metadata.hasCompositeChildren ||= childMetadata.hasCompositeChildren;
+    }
+  });
+
+  return metadata;
+}
+
 const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   (
     {
@@ -95,6 +151,11 @@ const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
     const selectId = id || generatedId;
     const hasError = !!error;
     const options = collectSelectItems(children);
+    const { placeholder, triggerClassName, hasCompositeChildren } =
+      collectSelectMetadata(children);
+    const shouldRenderCompositeOptions = hasCompositeChildren || options.length > 0;
+    const shouldRenderPlaceholder =
+      !!placeholder && !options.some((option) => option.value === "");
 
     return (
       <div className="w-full">
@@ -112,6 +173,7 @@ const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             className={cn(
               "flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-10 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors",
               hasError && "border-destructive focus-visible:ring-destructive",
+              triggerClassName,
               className
             )}
             ref={ref}
@@ -121,8 +183,14 @@ const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             }}
             {...props}
           >
-            {options.length > 0
-              ? options.map((option) => (
+            {shouldRenderCompositeOptions ? (
+              <>
+                {shouldRenderPlaceholder && (
+                  <option value="" disabled>
+                    {placeholder}
+                  </option>
+                )}
+                {options.map((option) => (
                   <option
                     key={option.value}
                     value={option.value}
@@ -130,8 +198,11 @@ const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
                   >
                     {option.label}
                   </option>
-                ))
-              : children}
+                ))}
+              </>
+            ) : (
+              children
+            )}
           </select>
           <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
             <ChevronDown className="h-4 w-4 text-muted-foreground" />

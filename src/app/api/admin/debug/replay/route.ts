@@ -12,6 +12,11 @@ import {
   getReplayHistory,
 } from '@/lib/debug/replay';
 import { z } from 'zod';
+import { db } from '@/lib/db';
+import { apiKeys, requestLogs } from '@/lib/db/schema';
+import { and, eq, sql } from 'drizzle-orm';
+import { Role, type AdminContext } from '@/lib/auth/rbac';
+import { canAccessApiKey } from '@/lib/auth/api-key-access';
 
 const replaySchema = z.object({
   requestId: z.string().uuid(),
@@ -25,6 +30,26 @@ const batchReplaySchema = z.object({
   useOriginalProvider: z.boolean().optional(),
   overrideModel: z.string().optional(),
 });
+
+async function canAccessRequestLog(requestId: string, adminContext: AdminContext): Promise<boolean> {
+  const conditions = [eq(requestLogs.id, requestId)];
+  if (adminContext.role !== Role.SUPER_ADMIN) {
+    conditions.push(
+      adminContext.organizationId
+        ? eq(apiKeys.organizationId, adminContext.organizationId)
+        : sql`false`
+    );
+  }
+
+  const [requestLog] = await db
+    .select({ id: requestLogs.id })
+    .from(requestLogs)
+    .innerJoin(apiKeys, eq(requestLogs.apiKeyId, apiKeys.id))
+    .where(and(...conditions))
+    .limit(1);
+
+  return Boolean(requestLog);
+}
 
 /**
  * POST /api/admin/debug/replay
@@ -54,6 +79,22 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      const accessChecks = await Promise.all(
+        validation.data.requestIds.map((requestId) =>
+          canAccessRequestLog(requestId, authResult.adminContext)
+        )
+      );
+
+      if (accessChecks.some((allowed) => !allowed)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'One or more requests were not found',
+          },
+          { status: 404 }
+        );
+      }
+
       const results = await batchReplayRequests(validation.data.requestIds, {
         useOriginalProvider: validation.data.useOriginalProvider,
         overrideModel: validation.data.overrideModel,
@@ -79,6 +120,16 @@ export async function POST(request: NextRequest) {
           details: validation.error.issues,
         },
         { status: 400 }
+      );
+    }
+
+    if (!(await canAccessRequestLog(validation.data.requestId, authResult.adminContext))) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Request not found',
+        },
+        { status: 404 }
       );
     }
 
@@ -125,6 +176,16 @@ export async function GET(request: NextRequest) {
           error: 'apiKeyId parameter required',
         },
         { status: 400 }
+      );
+    }
+
+    if (!(await canAccessApiKey(apiKeyId, authResult.adminContext))) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'API key not found',
+        },
+        { status: 404 }
       );
     }
 

@@ -150,6 +150,10 @@ function DataTable<T extends object>({
     setCurrentPage(1);
   }, [searchQuery, sortKey, sortDirection, activeFilters]);
 
+  React.useEffect(() => {
+    setCurrentPage((page) => Math.min(page, Math.max(1, totalPages)));
+  }, [totalPages]);
+
   return (
     <div className={cn("space-y-4", className)}>
       {(searchable || filters.length > 0) && (

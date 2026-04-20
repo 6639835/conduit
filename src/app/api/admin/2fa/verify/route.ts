@@ -2,16 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyTOTP } from '@/lib/security/2fa';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
 import { logAudit } from '@/lib/audit';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
+import { apiKeyAccessCondition } from '@/lib/auth/api-key-access';
 
 // POST /api/admin/2fa/verify - Verify TOTP code and enable 2FA for an API key
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
-    const session = authResult.session;
+    const authResult = await requirePermission(Permission.API_KEY_UPDATE);
+    if (!authResult.authorized) return authResult.response;
 
     const body = await request.json();
     const { apiKeyId, code } = body;
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     const [apiKey] = await db
       .select()
       .from(apiKeys)
-      .where(eq(apiKeys.id, apiKeyId))
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext))
       .limit(1);
 
     if (!apiKey) {
@@ -58,11 +58,11 @@ export async function POST(request: NextRequest) {
     await db
       .update(apiKeys)
       .set({ totpEnabled: true })
-      .where(eq(apiKeys.id, apiKeyId));
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext));
 
     // Log audit
     await logAudit({
-      adminEmail: session.user.email ?? undefined,
+      adminId: authResult.adminContext.id,
       resourceType: 'api_key',
       resourceId: apiKeyId,
       action: '2fa_enabled',

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { apiKeys, usageAggregates } from '@/lib/db/schema';
-import { eq, and, gte } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { apiKeys, usageAggregates, usageLogs } from '@/lib/db/schema';
+import { eq, and, gte, sql } from 'drizzle-orm';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
+import { apiKeyAccessCondition } from '@/lib/auth/api-key-access';
 import { kv } from '@vercel/kv';
 
 interface QuotaUsageResponse {
@@ -45,9 +47,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Check authentication
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.API_KEY_READ);
+    if (!authResult.authorized) return authResult.response;
 
     const { id } = await params;
 
@@ -55,7 +56,7 @@ export async function GET(
     const [apiKey] = await db
       .select()
       .from(apiKeys)
-      .where(eq(apiKeys.id, id))
+      .where(apiKeyAccessCondition(id, authResult.adminContext))
       .limit(1);
 
     if (!apiKey) {
@@ -146,40 +147,36 @@ export async function GET(
 
     // Get monthly spend if limit is set
     if (apiKey.monthlySpendLimitUsd && apiKey.monthlySpendLimitUsd > 0) {
-      const monthCacheKey = `quota:${apiKey.id}:month:${currentMonth}:spend`;
-      let monthlySpend = 0;
+      const monthCacheKey = `quota:${apiKey.id}:month:${currentMonth}:spend_cents`;
+      let monthlySpendCents = 0;
 
       // Try cache first
-      const cachedSpend = await kv.get<{ costUsd: number }>(monthCacheKey);
-      if (cachedSpend) {
-        monthlySpend = cachedSpend.costUsd;
+      const cachedSpendCents = await kv.get<number>(monthCacheKey);
+      if (cachedSpendCents !== null && cachedSpendCents !== undefined) {
+        monthlySpendCents = cachedSpendCents;
       } else {
-        // Query database for this month's spending
-        const monthStart = new Date(currentMonth + '-01');
-        monthStart.setHours(0, 0, 0, 0);
+        const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+        const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+        const ttlSeconds = Math.max(60, Math.ceil((nextMonth.getTime() - now.getTime()) / 1000) + 86400);
 
-        const [monthAggregate] = await db
+        const [monthUsage] = await db
           .select({
-            totalCostUsd: usageAggregates.totalCostUsd,
+            totalCostCents: sql<number>`coalesce(sum(${usageLogs.costUsd}), 0)`,
           })
-          .from(usageAggregates)
+          .from(usageLogs)
           .where(
             and(
-              eq(usageAggregates.apiKeyId, apiKey.id),
-              eq(usageAggregates.period, 'month'),
-              gte(usageAggregates.periodStart, monthStart)
+              eq(usageLogs.apiKeyId, apiKey.id),
+              gte(usageLogs.timestamp, monthStart)
             )
-          )
-          .limit(1);
+          );
 
-        if (monthAggregate) {
-          monthlySpend = Number(monthAggregate.totalCostUsd) / 100; // Convert from cents to USD
-          // Update cache
-          await kv.set(monthCacheKey, { costUsd: monthlySpend }, { ex: 60 });
-        }
+        monthlySpendCents = Number(monthUsage?.totalCostCents) || 0;
+        await kv.set(monthCacheKey, monthlySpendCents, { ex: ttlSeconds });
       }
 
       const monthlySpendLimit = apiKey.monthlySpendLimitUsd;
+      const monthlySpend = monthlySpendCents / 100;
       const monthlySpendRemaining = Math.max(0, monthlySpendLimit - monthlySpend);
 
       response.quota!.monthlySpend = {

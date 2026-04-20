@@ -13,7 +13,7 @@ import {
 } from '@/lib/debug/replay';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { apiKeyAccessCondition, canAccessApiKey } from '@/lib/auth/api-key-access';
 import { z } from 'zod';
 
 const enableDebugSchema = z.object({
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     const [key] = await db
       .select({ id: apiKeys.id, name: apiKeys.name })
       .from(apiKeys)
-      .where(eq(apiKeys.id, apiKeyId))
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext))
       .limit(1);
 
     if (!key) {
@@ -107,6 +107,16 @@ export async function GET(request: NextRequest) {
           error: 'apiKeyId parameter required',
         },
         { status: 400 }
+      );
+    }
+
+    if (!(await canAccessApiKey(apiKeyId, authResult.adminContext))) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'API key not found',
+        },
+        { status: 404 }
       );
     }
 

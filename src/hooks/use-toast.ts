@@ -8,29 +8,26 @@ export interface ToastOptions {
   variant?: ToastVariant;
 }
 
-export function useToast() {
-  return {
-    toast: ({ title, description, variant = "default" }: ToastOptions) => {
-      const message = title || description || "";
-      const options = description && title ? { description } : undefined;
+function toast({ title, description, variant = "default" }: ToastOptions) {
+  const message = title || description || "";
+  const options = description && title ? { description } : undefined;
 
-      switch (variant) {
-        case "destructive":
-          sonnerToast.error(message, options);
-          break;
-        case "success":
-          sonnerToast.success(message, options);
-          break;
-        case "warning":
-          sonnerToast.warning(message, options);
-          break;
-        case "info":
-          sonnerToast.info(message, options);
-          break;
-        default:
-          sonnerToast(message, options);
-          break;
-      }
-    },
-  };
+  switch (variant) {
+    case "destructive":
+      return sonnerToast.error(message, options);
+    case "success":
+      return sonnerToast.success(message, options);
+    case "warning":
+      return sonnerToast.warning(message, options);
+    case "info":
+      return sonnerToast.info(message, options);
+    default:
+      return sonnerToast(message, options);
+  }
+}
+
+const toastApi = { toast };
+
+export function useToast() {
+  return toastApi;
 }

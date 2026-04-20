@@ -5,11 +5,12 @@
 
 import { kv } from '@vercel/kv';
 import { db } from '@/lib/db';
-import { usageAggregates } from '@/lib/db/schema';
-import { eq, and, gte } from 'drizzle-orm';
+import { usageAggregates, usageLogs } from '@/lib/db/schema';
+import { eq, and, gte, sql } from 'drizzle-orm';
 import type { ApiKey } from '@/lib/db/schema';
 import type { RateLimitResult } from '@/types';
 import { SystemNotifications } from '@/lib/notifications';
+import { calculateCost } from '@/lib/analytics/cost-calculator';
 
 const QUOTA_CACHE_TTL = 60; // Cache quota status for 60 seconds
 
@@ -17,6 +18,14 @@ function shouldFailOpen(): boolean {
   // Default: fail-open in non-production to avoid blocking development.
   // In production, require explicit opt-in to fail-open.
   return process.env.NODE_ENV !== 'production' || process.env.LIMITER_FAIL_OPEN === 'true';
+}
+
+function getMonthBounds(now: Date): { monthStart: Date; nextMonth: Date; ttlSeconds: number } {
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const ttlSeconds = Math.max(60, Math.ceil((nextMonth.getTime() - now.getTime()) / 1000) + 86400);
+
+  return { monthStart, nextMonth, ttlSeconds };
 }
 
 /**
@@ -107,39 +116,36 @@ export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
   try {
     // Check monthly spend limit first (if set)
     if (apiKey.monthlySpendLimitUsd && apiKey.monthlySpendLimitUsd > 0) {
-      const monthCacheKey = `quota:${apiKey.id}:month:${currentMonth}:spend`;
-      const cachedSpend = await kv.get<{ costUsd: number }>(monthCacheKey);
+      const monthCacheKey = `quota:${apiKey.id}:month:${currentMonth}:spend_cents`;
+      const cachedSpendCents = await kv.get<number>(monthCacheKey);
 
-      let monthlySpend: number;
-      const monthStart = new Date(currentMonth + '-01');
-      monthStart.setHours(0, 0, 0, 0);
+      let monthlySpendCents: number;
+      const { monthStart, nextMonth, ttlSeconds } = getMonthBounds(now);
 
-      if (cachedSpend) {
-        monthlySpend = cachedSpend.costUsd;
+      if (cachedSpendCents !== null && cachedSpendCents !== undefined) {
+        monthlySpendCents = cachedSpendCents;
       } else {
-        // Query database for this month's spending
-        const [monthAggregate] = await db
+        // Seed the real-time counter from raw logs so monthly limits do not wait for aggregation cron.
+        const [monthUsage] = await db
           .select({
-            totalCostUsd: usageAggregates.totalCostUsd,
+            totalCostCents: sql<number>`coalesce(sum(${usageLogs.costUsd}), 0)`,
           })
-          .from(usageAggregates)
+          .from(usageLogs)
           .where(
             and(
-              eq(usageAggregates.apiKeyId, apiKey.id),
-              eq(usageAggregates.period, 'month'),
-              gte(usageAggregates.periodStart, monthStart)
+              eq(usageLogs.apiKeyId, apiKey.id),
+              gte(usageLogs.timestamp, monthStart)
             )
-          )
-          .limit(1);
+          );
 
-        monthlySpend = monthAggregate ? Number(monthAggregate.totalCostUsd) / 100 : 0; // Convert from cents to USD
+        monthlySpendCents = Number(monthUsage?.totalCostCents) || 0;
 
-        // Cache the result
-        await kv.set(monthCacheKey, { costUsd: monthlySpend }, { ex: QUOTA_CACHE_TTL });
+        await kv.set(monthCacheKey, monthlySpendCents, { ex: ttlSeconds });
       }
 
       // Calculate spend percentage and send warnings (await to handle errors properly)
-      const spendPercent = (monthlySpend / apiKey.monthlySpendLimitUsd) * 100;
+      const monthlySpendLimitCents = apiKey.monthlySpendLimitUsd * 100;
+      const spendPercent = (monthlySpendCents / monthlySpendLimitCents) * 100;
       try {
         await sendSpendLimitWarning(apiKey, spendPercent);
       } catch (error) {
@@ -147,12 +153,10 @@ export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
       }
 
       // Check if monthly spend limit exceeded
-      if (monthlySpend >= apiKey.monthlySpendLimitUsd) {
-        const nextMonth = new Date(monthStart);
-        nextMonth.setMonth(nextMonth.getMonth() + 1);
-        const resetTime = nextMonth.getTime();
-        const retryAfter = Math.ceil((resetTime - now.getTime()) / 1000);
+      const resetTime = nextMonth.getTime();
+      const retryAfter = Math.ceil((resetTime - now.getTime()) / 1000);
 
+      if (monthlySpendCents >= monthlySpendLimitCents) {
         return {
           allowed: false,
           limit: apiKey.monthlySpendLimitUsd,
@@ -254,10 +258,14 @@ export async function checkQuota(apiKey: ApiKey): Promise<RateLimitResult> {
 export async function incrementTokenUsage(
   apiKeyId: string,
   tokensInput: number,
-  tokensOutput: number
+  tokensOutput: number,
+  model?: string
 ): Promise<void> {
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const currentMonth = now.toISOString().slice(0, 7);
   const cacheKey = `quota:${apiKeyId}:day:${today}:tokens`;
+  const monthSpendKey = `quota:${apiKeyId}:month:${currentMonth}:spend_cents`;
 
   try {
     const totalTokens = tokensInput + tokensOutput;
@@ -267,6 +275,14 @@ export async function incrementTokenUsage(
 
     // Set expiry (idempotent - only sets if no TTL exists)
     await kv.expire(cacheKey, 86400 * 2); // 2 days TTL
+
+    if (model) {
+      const costCents = calculateCost(model, tokensInput, tokensOutput);
+      if (costCents > 0) {
+        await kv.incrby(monthSpendKey, costCents);
+        await kv.expire(monthSpendKey, getMonthBounds(now).ttlSeconds);
+      }
+    }
   } catch (error) {
     console.error('Error incrementing token usage:', error);
     // Non-critical error - continue

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
+import { apiKeyAccessCondition } from '@/lib/auth/api-key-access';
 import { z } from 'zod';
 
 const updateAlertThresholdsSchema = z.object({
@@ -30,11 +31,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Check authentication
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.API_KEY_READ);
+    if (!authResult.authorized) return authResult.response;
 
     const { id } = await params;
+    const whereClause = apiKeyAccessCondition(id, authResult.adminContext);
 
     // Get the API key
     const [apiKey] = await db
@@ -42,7 +43,7 @@ export async function GET(
         alertThresholds: apiKeys.alertThresholds,
       })
       .from(apiKeys)
-      .where(eq(apiKeys.id, id))
+      .where(whereClause)
       .limit(1);
 
     if (!apiKey) {
@@ -87,11 +88,11 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Check authentication
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.API_KEY_UPDATE);
+    if (!authResult.authorized) return authResult.response;
 
     const { id } = await params;
+    const whereClause = apiKeyAccessCondition(id, authResult.adminContext);
 
     // Parse and validate request body
     const body = await request.json();
@@ -115,7 +116,7 @@ export async function PATCH(
         alertThresholds: apiKeys.alertThresholds,
       })
       .from(apiKeys)
-      .where(eq(apiKeys.id, id))
+      .where(whereClause)
       .limit(1);
 
     if (!existingKey) {
@@ -148,7 +149,7 @@ export async function PATCH(
         alertThresholds: updatedThresholds,
         updatedAt: new Date(),
       })
-      .where(eq(apiKeys.id, id));
+      .where(whereClause);
 
     return NextResponse.json(
       {

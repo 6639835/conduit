@@ -113,6 +113,15 @@ export function isRetryableError(
   return false;
 }
 
+function createRetryableStatusError(response: Response, providerName: string): Error & { status: number; statusCode: number } {
+  const error = new Error(
+    `Provider ${providerName} returned retryable status ${response.status} ${response.statusText}`
+  ) as Error & { status: number; statusCode: number };
+  error.status = response.status;
+  error.statusCode = response.status;
+  return error;
+}
+
 /**
  * Executes a request with retry logic
  * @param fn - Function to execute
@@ -301,8 +310,28 @@ export async function makeProxyRequestWithStrategy(
       // Try the request with retry logic
       const response = await withRetry(
         async () => {
+          let response: Response;
+
           if (provider.type === 'codex' || provider.type === 'openai') {
-            return await proxyToOpenAI({
+            response = await proxyToOpenAI({
+              apiKey,
+              provider,
+              path,
+              method,
+              headers,
+              body,
+            });
+          } else if (provider.type === 'gemini') {
+            response = await proxyToGemini({
+              apiKey,
+              provider,
+              path,
+              method,
+              headers,
+              body,
+            });
+          } else {
+            response = await proxyToClaudeOfficial({
               apiKey,
               provider,
               path,
@@ -312,25 +341,13 @@ export async function makeProxyRequestWithStrategy(
             });
           }
 
-          if (provider.type === 'gemini') {
-            return await proxyToGemini({
-              apiKey,
-              provider,
-              path,
-              method,
-              headers,
-              body,
-            });
+          const statusError = createRetryableStatusError(response, provider.name);
+          if (isRetryableError(statusError, response.status)) {
+            await response.body?.cancel().catch(() => undefined);
+            throw statusError;
           }
 
-          return await proxyToClaudeOfficial({
-            apiKey,
-            provider,
-            path,
-            method,
-            headers,
-            body,
-          });
+          return response;
         },
         provider.maxRetries || 3,
         (attempt, error) => {

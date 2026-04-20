@@ -9,7 +9,7 @@ import { Permission } from '@/lib/auth/rbac';
 import { generateRoutingRecommendations } from '@/lib/proxy/intelligent-routing';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { apiKeyAccessCondition } from '@/lib/auth/api-key-access';
 
 export async function GET(request: NextRequest) {
   try {
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     const [key] = await db
       .select({ id: apiKeys.id, name: apiKeys.name })
       .from(apiKeys)
-      .where(eq(apiKeys.id, apiKeyId))
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext))
       .limit(1);
 
     if (!key) {

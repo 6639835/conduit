@@ -9,7 +9,7 @@ import { Permission } from '@/lib/auth/rbac';
 import { analyzeBehavior, getBehavioralPattern } from '@/lib/security/behavioral-analysis';
 import { db } from '@/lib/db';
 import { apiKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { apiKeyAccessCondition } from '@/lib/auth/api-key-access';
 
 /**
  * GET /api/admin/security/behavioral?apiKeyId=xxx
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     const [key] = await db
       .select({ id: apiKeys.id, name: apiKeys.name })
       .from(apiKeys)
-      .where(eq(apiKeys.id, apiKeyId))
+      .where(apiKeyAccessCondition(apiKeyId, authResult.adminContext))
       .limit(1);
 
     if (!key) {

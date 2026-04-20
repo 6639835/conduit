@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { auditLogs } from '@/lib/db/schema';
 import { desc, eq, and, gte, lte, sql } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
 
 export const runtime = 'edge';
 
 // GET /api/admin/audit-logs - List audit logs with filtering and pagination
 export async function GET(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.AUDIT_LOG_VIEW);
+    if (!authResult.authorized) return authResult.response;
 
     const { searchParams } = new URL(request.url);
 
@@ -77,8 +78,8 @@ export async function GET(request: NextRequest) {
 // GET /api/admin/audit-logs/stats - Get audit log statistics
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.AUDIT_LOG_VIEW);
+    if (!authResult.authorized) return authResult.response;
 
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '7', 10);

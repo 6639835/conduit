@@ -61,13 +61,17 @@ export function TourProvider({ children }: TourProviderProps) {
     }
   };
 
+  const resetTour = () => {
+    setCurrentTour(null);
+    setCurrentStep(0);
+    setIsActive(false);
+  };
+
   const endTour = () => {
     if (currentTour?.onComplete) {
       currentTour.onComplete();
     }
-    setCurrentTour(null);
-    setCurrentStep(0);
-    setIsActive(false);
+    resetTour();
   };
 
   const nextStep = () => {
@@ -103,7 +107,7 @@ export function TourProvider({ children }: TourProviderProps) {
     if (currentTour) {
       localStorage.setItem(`tour-skipped-${currentTour.id}`, 'true');
     }
-    endTour();
+    resetTour();
   };
 
   return (

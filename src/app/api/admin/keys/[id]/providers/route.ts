@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProviderPool, addProviderToPool, removeProviderFromPool, updateProviderPriority } from '@/lib/proxy/provider-pool';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
+import { canAccessApiKey } from '@/lib/auth/api-key-access';
 import { z } from 'zod';
 
 // Validation schema for adding provider to pool
@@ -23,11 +25,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Check authentication
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.API_KEY_READ);
+    if (!authResult.authorized) return authResult.response;
 
     const { id: apiKeyId } = await params;
+    if (!(await canAccessApiKey(apiKeyId, authResult.adminContext))) {
+      return NextResponse.json({ success: false, error: 'API key not found' }, { status: 404 });
+    }
 
     // Get provider pool
     const providers = await getProviderPool(apiKeyId);
@@ -64,11 +68,13 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Check authentication
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.API_KEY_UPDATE);
+    if (!authResult.authorized) return authResult.response;
 
     const { id: apiKeyId } = await params;
+    if (!(await canAccessApiKey(apiKeyId, authResult.adminContext))) {
+      return NextResponse.json({ success: false, error: 'API key not found' }, { status: 404 });
+    }
 
     // Parse and validate request body
     const rawBody = await request.json();
@@ -114,11 +120,13 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Check authentication
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.API_KEY_UPDATE);
+    if (!authResult.authorized) return authResult.response;
 
     const { id: apiKeyId } = await params;
+    if (!(await canAccessApiKey(apiKeyId, authResult.adminContext))) {
+      return NextResponse.json({ success: false, error: 'API key not found' }, { status: 404 });
+    }
 
     // Get provider ID from query parameter
     const url = new URL(request.url);
@@ -159,11 +167,13 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Check authentication
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.API_KEY_UPDATE);
+    if (!authResult.authorized) return authResult.response;
 
     const { id: apiKeyId } = await params;
+    if (!(await canAccessApiKey(apiKeyId, authResult.adminContext))) {
+      return NextResponse.json({ success: false, error: 'API key not found' }, { status: 404 });
+    }
 
     // Get provider ID from query parameter
     const url = new URL(request.url);

@@ -5,8 +5,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/auth/middleware';
-import { Permission } from '@/lib/auth/rbac';
+import { Permission, Role } from '@/lib/auth/rbac';
 import { compareRequests } from '@/lib/debug/replay';
+import { db } from '@/lib/db';
+import { apiKeys, requestLogs } from '@/lib/db/schema';
+import { and, eq, sql } from 'drizzle-orm';
 
 /**
  * GET /api/admin/debug/compare?original=xxx&replay=yyy
@@ -28,6 +31,32 @@ export async function GET(request: NextRequest) {
           error: 'Both original and replay request IDs are required',
         },
         { status: 400 }
+      );
+    }
+
+    const conditions = [eq(requestLogs.id, originalId)];
+    if (authResult.adminContext.role !== Role.SUPER_ADMIN) {
+      conditions.push(
+        authResult.adminContext.organizationId
+          ? eq(apiKeys.organizationId, authResult.adminContext.organizationId)
+          : sql`false`
+      );
+    }
+
+    const [requestLog] = await db
+      .select({ id: requestLogs.id })
+      .from(requestLogs)
+      .innerJoin(apiKeys, eq(requestLogs.apiKeyId, apiKeys.id))
+      .where(and(...conditions))
+      .limit(1);
+
+    if (!requestLog) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Original request not found',
+        },
+        { status: 404 }
       );
     }
 

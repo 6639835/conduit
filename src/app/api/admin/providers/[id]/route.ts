@@ -3,7 +3,8 @@ import { db } from '@/lib/db';
 import { providers } from '@/lib/db/schema';
 import { encryptApiKey } from '@/lib/utils/crypto';
 import { eq, ne } from 'drizzle-orm';
-import { checkAuth } from '@/lib/auth/middleware';
+import { requirePermission } from '@/lib/auth/middleware';
+import { Permission } from '@/lib/auth/rbac';
 
 export interface UpdateProviderRequest {
   name?: string;
@@ -95,8 +96,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.PROVIDER_READ);
+    if (!authResult.authorized) return authResult.response;
 
     const { id } = await params;
 
@@ -161,8 +162,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.PROVIDER_UPDATE);
+    if (!authResult.authorized) return authResult.response;
 
     const { id } = await params;
     const body: UpdateProviderRequest = await request.json();
@@ -307,8 +308,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authResult = await checkAuth();
-    if (authResult.error) return authResult.error;
+    const authResult = await requirePermission(Permission.PROVIDER_DELETE);
+    if (!authResult.authorized) return authResult.response;
 
     const { id } = await params;
 

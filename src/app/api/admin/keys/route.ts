@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiKeys, providers } from '@/lib/db/schema';
 import { generateApiKey } from '@/lib/auth/api-key';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { CreateApiKeyResponse, ListApiKeysResponse } from '@/types';
 import { SystemNotifications } from '@/lib/notifications';
 import { requirePermission } from '@/lib/auth/middleware';
-import { Permission } from '@/lib/auth/rbac';
+import { Permission, Role } from '@/lib/auth/rbac';
 import { z } from 'zod';
 import { setProviderPool } from '@/lib/proxy/provider-pool';
 import { kv } from '@vercel/kv';
@@ -60,6 +60,32 @@ export async function POST(request: NextRequest) {
     }
 
     const body = validationResult.data;
+    const organizationId =
+      adminContext.role === Role.SUPER_ADMIN
+        ? body.organizationId || null
+        : adminContext.organizationId;
+
+    if (adminContext.role !== Role.SUPER_ADMIN) {
+      if (!adminContext.organizationId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Admin is not assigned to an organization',
+          } as CreateApiKeyResponse,
+          { status: 403 }
+        );
+      }
+
+      if (body.organizationId && body.organizationId !== adminContext.organizationId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'You do not have access to this organization',
+          } as CreateApiKeyResponse,
+          { status: 403 }
+        );
+      }
+    }
 
     // Validate: Either provider (single) or providerIds (multi) must be provided
     if (!body.provider && (!body.providerIds || body.providerIds.length === 0)) {
@@ -154,7 +180,7 @@ export async function POST(request: NextRequest) {
           models: body.allowedModels || undefined,
           endpoints: body.allowedEndpoints || undefined,
         } : null,
-        organizationId: body.organizationId || null,
+        organizationId,
         projectId: body.projectId || null,
       })
       .returning();
@@ -219,6 +245,13 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
     const offset = (page - 1) * limit;
     const includeQuota = searchParams.get('includeQuota') === 'true';
+    const conditions =
+      authResult.adminContext.role === Role.SUPER_ADMIN
+        ? []
+        : authResult.adminContext.organizationId
+          ? [eq(apiKeys.organizationId, authResult.adminContext.organizationId)]
+          : [sql`false`];
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     const keys = await db
       .select({
@@ -238,6 +271,7 @@ export async function GET(request: NextRequest) {
       })
       .from(apiKeys)
       .leftJoin(providers, eq(apiKeys.providerId, providers.id))
+      .where(whereClause)
       .orderBy(desc(apiKeys.createdAt))
       .limit(limit)
       .offset(offset);
@@ -245,7 +279,8 @@ export async function GET(request: NextRequest) {
     // Get total count for pagination
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)::int` })
-      .from(apiKeys);
+      .from(apiKeys)
+      .where(whereClause);
 
     const totalPages = Math.ceil(count / limit);
 

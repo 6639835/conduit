@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/auth/middleware';
-import { Permission } from '@/lib/auth/rbac';
+import { Permission, Role } from '@/lib/auth/rbac';
 import { db } from '@/lib/db';
 import { apiKeys, providers } from '@/lib/db/schema';
 import { generateApiKey } from '@/lib/auth/api-key';
@@ -57,8 +57,18 @@ export async function GET(request: NextRequest) {
 
     // Build query conditions
     const conditions = [];
-    if (organizationId) {
-      conditions.push(eq(apiKeys.organizationId, organizationId));
+    if (authResult.adminContext.role === Role.SUPER_ADMIN) {
+      if (organizationId) {
+        conditions.push(eq(apiKeys.organizationId, organizationId));
+      }
+    } else if (authResult.adminContext.organizationId) {
+      if (organizationId && organizationId !== authResult.adminContext.organizationId) {
+        conditions.push(sql`false`);
+      } else {
+        conditions.push(eq(apiKeys.organizationId, authResult.adminContext.organizationId));
+      }
+    } else {
+      conditions.push(sql`false`);
     }
     if (isActive !== null) {
       conditions.push(eq(apiKeys.isActive, isActive === 'true'));
@@ -151,6 +161,40 @@ export async function POST(request: NextRequest) {
     }
 
     const data = validation.data;
+    const organizationId =
+      authResult.adminContext.role === Role.SUPER_ADMIN
+        ? data.organizationId || null
+        : authResult.adminContext.organizationId;
+
+    if (authResult.adminContext.role !== Role.SUPER_ADMIN) {
+      if (!authResult.adminContext.organizationId) {
+        return NextResponse.json(
+          {
+            success: false,
+            version: API_VERSION,
+            error: {
+              code: 'FORBIDDEN',
+              message: 'Admin is not assigned to an organization',
+            },
+          },
+          { status: 403 }
+        );
+      }
+
+      if (data.organizationId && data.organizationId !== authResult.adminContext.organizationId) {
+        return NextResponse.json(
+          {
+            success: false,
+            version: API_VERSION,
+            error: {
+              code: 'FORBIDDEN',
+              message: 'You do not have access to this organization',
+            },
+          },
+          { status: 403 }
+        );
+      }
+    }
 
     // Verify provider exists
     const [provider] = await db
@@ -188,7 +232,7 @@ export async function POST(request: NextRequest) {
         requestsPerDay: data.requestsPerDay || null,
         tokensPerDay: data.tokensPerDay ?? null,
         monthlySpendLimitUsd: data.monthlySpendLimitUsd ?? null,
-        organizationId: data.organizationId || null,
+        organizationId,
         projectId: data.projectId || null,
         metadata: data.metadata || null,
         isActive: true,

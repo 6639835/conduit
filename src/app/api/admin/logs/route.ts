@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiKeys, requestLogs } from '@/lib/db/schema';
-import { and, desc, eq, gte, lt } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { requirePermission } from '@/lib/auth/middleware';
-import { Permission } from '@/lib/auth/rbac';
+import { Permission, Role } from '@/lib/auth/rbac';
 
 /**
  * GET /api/admin/logs?apiKeyId=xxx&days=7&limit=100&type=errors
@@ -24,6 +24,13 @@ export async function GET(request: NextRequest) {
     startDate.setDate(startDate.getDate() - days);
 
     const filters = [gte(requestLogs.createdAt, startDate)];
+    if (authResult.adminContext.role !== Role.SUPER_ADMIN) {
+      filters.push(
+        authResult.adminContext.organizationId
+          ? eq(apiKeys.organizationId, authResult.adminContext.organizationId)
+          : sql`false`
+      );
+    }
 
     if (apiKeyId) {
       filters.push(eq(requestLogs.apiKeyId, apiKeyId));
